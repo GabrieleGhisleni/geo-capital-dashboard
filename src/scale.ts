@@ -1,56 +1,118 @@
 import type { Metric } from './types'
 
-/** Sequential blue ramp (steps 100→700), light→dark = low→high on the light surface. */
-export const RAMP_LIGHT = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b']
-/** On the dark surface low values recede toward the background: dark→light = low→high. */
-export const RAMP_DARK = ['#104281', '#184f95', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb']
+export type ColorMetric = Exclude<Metric, 'none'>
 
 /**
- * Quantile class breaks: returns up to `classes - 1` ascending thresholds.
- * A value v falls in class i where i = number of thresholds <= v.
+ * Multi-hue sequential ramps (CARTO), light → dark = low → high. Each metric gets its own hue
+ * family so switching metric is visibly a different map.
  */
-export function quantileBreaks(values: number[], classes = RAMP_LIGHT.length): number[] {
-  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
-  if (sorted.length < 2) return []
-  const breaks: number[] = []
-  for (let i = 1; i < classes; i++) {
-    const t = sorted[Math.floor((i * sorted.length) / classes)]
-    if (t > sorted[0] && (breaks.length === 0 || t > breaks[breaks.length - 1])) breaks.push(niceRound(t))
+export const RAMPS: Record<ColorMetric, string[]> = {
+  population: ['#f3e79b', '#fac484', '#f8a07e', '#eb7f86', '#ce6693', '#a059a0', '#5c53a5'], // Sunset
+  area: ['#d3f2a3', '#97e196', '#6cc08b', '#4c9b82', '#217a79', '#105965', '#074050'], // Emrld
+  density: ['#ffc6c4', '#f4a3a8', '#e38191', '#cc607d', '#ad466c', '#8b3058', '#672044'], // Burg
+  gdp: ['#d1eeea', '#a8dbd9', '#85c4c9', '#68abb8', '#4f90a6', '#3b738f', '#2a5674'], // Teal
+  gdpPerCapita: ['#f9ddda', '#f2b9c4', '#e597b9', '#ce78b3', '#ad5fad', '#834ba0', '#573b88'], // Purp
+}
+
+/** Log-scale domain: log10 bounds of the robust range of the values (outliers clamp to the ends). */
+export type Domain = [number, number]
+
+export type Scale = {
+  domain: Domain
+  ticks: number[]
+  ramp: string[]
+}
+
+function percentile(sorted: number[], p: number): number {
+  const i = (sorted.length - 1) * p
+  const lo = Math.floor(i)
+  return sorted[lo] + (sorted[Math.ceil(i)] - sorted[lo]) * (i - lo)
+}
+
+/** Robust log10 domain (2nd–98th percentile), so a Vatican or a Russia doesn't flatten everyone else. */
+export function logDomain(values: number[]): Domain | null {
+  const sorted = values.filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const trim = sorted.length >= 20 ? 0.02 : 0
+  const lo = Math.log10(percentile(sorted, trim))
+  const hi = Math.log10(percentile(sorted, 1 - trim))
+  return hi - lo < 1e-9 ? [lo - 0.5, hi + 0.5] : [lo, hi]
+}
+
+/** Position of a value on the scale, 0–1 (clamped). */
+export function scalePosition(value: number, [lo, hi]: Domain): number {
+  if (!(value > 0)) return 0
+  return Math.min(1, Math.max(0, (Math.log10(value) - lo) / (hi - lo)))
+}
+
+const LADDERS = [[1], [1, 3], [1, 2, 5], [1, 1.5, 2, 3, 5, 7]]
+
+/** Round tick values inside the domain: decades when the range is wide, 1-2-5 steps otherwise. */
+export function niceLogTicks([lo, hi]: Domain, max = 5): number[] {
+  const min = 10 ** lo
+  const maxV = 10 ** hi
+  for (const ladder of LADDERS) {
+    const ticks: number[] = []
+    for (let exp = Math.floor(lo); exp <= Math.ceil(hi); exp++) {
+      for (const step of ladder) {
+        const v = step * 10 ** exp
+        if (v >= min * 0.999 && v <= maxV * 1.001) ticks.push(Number(v.toPrecision(6)))
+      }
+    }
+    if (ticks.length >= 3 || ladder === LADDERS[LADDERS.length - 1]) {
+      if (ticks.length <= max) return ticks
+      const stride = Math.ceil(ticks.length / max)
+      return ticks.filter((_, i) => i % stride === 0)
+    }
   }
-  return [...new Set(breaks)]
+  return []
 }
 
-/** Round to 2 significant digits so legend labels read cleanly. */
-export function niceRound(v: number): number {
-  if (v === 0) return 0
-  const mag = 10 ** (Math.floor(Math.log10(Math.abs(v))) - 1)
-  return Math.round(v / mag) * mag
+export function buildScale(values: number[], metric: ColorMetric): Scale | null {
+  const domain = logDomain(values)
+  if (!domain) return null
+  return { domain, ticks: niceLogTicks(domain), ramp: RAMPS[metric] }
 }
 
-export function classIndex(value: number, breaks: number[]): number {
-  let i = 0
-  while (i < breaks.length && value >= breaks[i]) i++
-  return i
+/** CSS gradient of a ramp, for legends and swatches. */
+export function rampGradient(ramp: string[], direction = 'to right'): string {
+  return `linear-gradient(${direction}, ${ramp.map((c, i) => `${c} ${((i / (ramp.length - 1)) * 100).toFixed(1)}%`).join(', ')})`
 }
 
-/** Pick evenly spread ramp colors when there are fewer classes than ramp steps. */
-export function rampFor(classCount: number, ramp: string[]): string[] {
-  if (classCount >= ramp.length) return ramp
-  if (classCount === 1) return [ramp[Math.floor(ramp.length / 2)]]
-  return Array.from({ length: classCount }, (_, i) =>
-    ramp[Math.round((i * (ramp.length - 1)) / (classCount - 1))],
-  )
+/** Color at position t (0–1) along a ramp, interpolated in sRGB like the map does. */
+export function colorAt(t: number, ramp: string[]): string {
+  const x = Math.min(1, Math.max(0, t)) * (ramp.length - 1)
+  const i = Math.min(ramp.length - 2, Math.floor(x))
+  const f = x - i
+  const a = parseInt(ramp[i].slice(1), 16)
+  const b = parseInt(ramp[i + 1].slice(1), 16)
+  const mix = (shift: number) => Math.round(((a >> shift) & 255) * (1 - f) + ((b >> shift) & 255) * f)
+  return `#${[16, 8, 0].map((s) => mix(s).toString(16).padStart(2, '0')).join('')}`
 }
 
-export function metricValue(
-  item: { population?: number | null; area?: number | null },
-  metric: Metric,
-): number | null {
+type Measurable = {
+  population?: number | null
+  area?: number | null
+  gdp?: number | null
+  gdpPerCapita?: number | null
+}
+
+export function metricValue(item: Measurable, metric: Metric): number | null {
   const { population, area } = item
-  if (metric === 'population') return population ?? null
-  if (metric === 'area') return area ?? null
-  if (metric === 'density') return population && area ? population / area : null
-  return null
+  switch (metric) {
+    case 'population':
+      return population ?? null
+    case 'area':
+      return area ?? null
+    case 'density':
+      return population && area ? population / area : null
+    case 'gdp':
+      return item.gdp ?? null
+    case 'gdpPerCapita':
+      return item.gdpPerCapita ?? null
+    case 'none':
+      return null
+  }
 }
 
 const nf = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 })
@@ -67,9 +129,26 @@ export function formatCompact(v: number | null | undefined): string {
   return Math.abs(v) < 1000 ? formatNumber(v) : compact.format(v)
 }
 
+/** US$ amounts in Italian usage: "60.496 $", "850 Mln $", "5.051 Mld $" (never the ambiguous "Bln"). */
+function formatUsd(v: number): string {
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return `${(abs >= 1e10 ? nf : nf1).format(v / 1e9)} Mld $`
+  if (abs >= 1e6) return `${(abs >= 1e7 ? nf : nf1).format(v / 1e6)} Mln $`
+  return `${nf.format(v)} $`
+}
+
 export function formatMetric(v: number | null | undefined, metric: Metric): string {
   if (v == null) return '—'
   if (metric === 'area') return `${formatNumber(v)} km²`
   if (metric === 'density') return `${formatNumber(v)} ab./km²`
+  if (metric === 'gdp' || metric === 'gdpPerCapita') return formatUsd(v)
   return formatNumber(v)
+}
+
+/** Short form for legend ticks and tight spaces. */
+export function formatMetricCompact(v: number | null | undefined, metric: Metric): string {
+  if (v == null) return '—'
+  if (metric === 'gdp') return formatUsd(v)
+  if (metric === 'gdpPerCapita') return `${formatCompact(v)} $`
+  return formatCompact(v)
 }

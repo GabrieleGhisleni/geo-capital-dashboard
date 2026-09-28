@@ -18,11 +18,7 @@ type Props = {
 
 export function SidePanel(props: Props) {
   const country = props.selectedId ? props.data.countries[props.selectedId] : null
-  return (
-    <aside className="card panel" aria-live="polite">
-      {country ? <CountryDetail {...props} country={country} /> : <Ranking {...props} />}
-    </aside>
-  )
+  return country ? <CountryDetail {...props} country={country} /> : <Ranking {...props} />
 }
 
 function Stat({ label, value, note, title }: { label: string; value: string; note?: string | null; title?: string }) {
@@ -137,6 +133,12 @@ function CountryDetail({ data, metric, regions, regionsFailed, onSelect, country
         <Stat label="Popolazione" value={formatCompact(country.population)} note={source(country.populationSource, country.populationYear)} title={formatNumber(country.population)} />
         <Stat label="Superficie" value={`${formatCompact(country.area)} km²`} note={country.areaSource} title={`${formatNumber(country.area)} km²`} />
         <Stat label="Densità" value={`${formatNumber(density)} ab./km²`} />
+        <Stat label="PIL" value={formatMetric(country.gdp, 'gdp')} note={source(country.gdp ? 'World Bank' : null, country.gdpYear)} />
+        <Stat
+          label="PIL pro capite"
+          value={formatMetric(country.gdpPerCapita, 'gdpPerCapita')}
+          note={source(country.gdpPerCapita ? 'World Bank' : null, country.gdpPerCapitaYear)}
+        />
       </div>
 
       {country.admin1Count > 0 && (

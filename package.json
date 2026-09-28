@@ -10,9 +10,12 @@
     "preview": "vite preview",
     "data": "python3 scripts/build_data.py",
     "test": "vitest run",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "fonts": "node scripts/copy_map_fonts.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
     "d3-scale": "^4.0.2",
     "d3-scale-chromatic": "^3.1.0",
     "maplibre-gl": "^6.11.2",
@@ -21,6 +24,8 @@
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
     "@types/d3-scale": "^4.0.9",
     "@types/d3-scale-chromatic": "^3.1.0",
     "@types/geojson": "^7946.0.16",

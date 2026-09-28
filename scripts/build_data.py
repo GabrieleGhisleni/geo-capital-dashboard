@@ -441,7 +441,7 @@ def build_countries_geometry(admin0_shp: Path) -> list[dict]:
     detail = CACHE / "admin0.geojson"
     mapshaper(
         "-i", str(admin0_shp), "encoding=utf8",
-        "-filter-fields", "ADM0_A3,ISO_A2_EH,ISO_A3_EH,NAME,NAME_IT,CONTINENT,SUBREGION,TYPE,WIKIDATAID",
+        "-filter-fields", "ADM0_A3,ISO_A2_EH,ISO_A3_EH,NAME,NAME_IT,CONTINENT,SUBREGION,TYPE,WIKIDATAID,LABEL_X,LABEL_Y,MIN_LABEL",
         "-o", str(detail), "format=geojson", "precision=0.001",
     )  # fmt: skip
     return json.loads(detail.read_text())["features"]
@@ -667,6 +667,8 @@ def iso_owners(entries: list[tuple[str, str, str]]) -> dict[str, str]:
 def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict[str, dict]:
     population_wb = world_bank("SP.POP.TOTL")
     area_wb = world_bank("AG.SRF.TOTL.K2")
+    gdp_wb = world_bank("NY.GDP.MKTP.CD")  # GDP, current US$
+    gdp_pc_wb = world_bank("NY.GDP.PCAP.CD")  # GDP per capita, current US$
     wd = wikidata_stats(sorted({clean_str(f["properties"]["WIKIDATAID"]) for f in features} - {""}), "countries")
     iso3s = [(f["properties"]["ADM0_A3"], clean_str(f["properties"]["ISO_A3_EH"])) for f in features]
     iso3_owner = iso_owners([(adm0, iso3, iso3) for adm0, iso3 in iso3s])
@@ -688,12 +690,25 @@ def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict
 
         # World Bank first; Wikidata only when consistent with the boundary's own geodesic area.
         measured = geodesic_area_km2(feat["geometry"])
-        if wb_code in area_wb:
-            area, area_source = area_wb[wb_code][0], "World Bank"
+        wb_area = area_wb[wb_code][0] if wb_code in area_wb else None
+        if wb_area and w.get("area") and not 1 / 3 < wb_area / w["area"] < 3:
+            # The sources disagree wildly (World Bank: Monaco 74.9 km², Greenland ice-free only;
+            # Wikidata: Macao with its waters). The boundary's own area picks the plausible one.
+            def off(v: float) -> float:
+                return abs(math.log(v / measured)) if measured > 1 else 0.0
+
+            if off(w["area"]) <= off(wb_area):
+                area, area_source = w["area"], "Wikidata"
+            else:
+                area, area_source = wb_area, "World Bank"
+        elif wb_area:
+            area, area_source = wb_area, "World Bank"
         elif w.get("area") and 0.6 < w["area"] / max(measured, 1e-9) < 1.6:
             area, area_source = w["area"], "Wikidata"
         else:
             area, area_source = measured, "Natural Earth (calcolata)"
+        if area_source == "Wikidata" and wb_area:
+            log(f"area {cid}: World Bank {wb_area} vs Wikidata {w['area']} → Wikidata")
 
         capitals = sorted(w.get("capitals") or [], key=lambda c: -(c["population"] or 0))
         anchor = (capitals[0]["lat"], capitals[0]["lon"]) if capitals else None
@@ -709,9 +724,16 @@ def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict
             "population": int(population) if population is not None else None,
             "populationYear": pop_year,
             "populationSource": pop_source,
+            "gdp": round(gdp_wb[wb_code][0]) if wb_code in gdp_wb else None,
+            "gdpYear": gdp_wb[wb_code][1] if wb_code in gdp_wb else None,
+            "gdpPerCapita": round(gdp_pc_wb[wb_code][0], 1) if wb_code in gdp_pc_wb else None,
+            "gdpPerCapitaYear": gdp_pc_wb[wb_code][1] if wb_code in gdp_pc_wb else None,
             "area": round(area, 1) if area else None,
             "areaSource": area_source,
             "capitals": capitals,
+            # Natural Earth's hand-placed label point and the zoom from which the name should show.
+            "label": [round(p["LABEL_X"], 3), round(p["LABEL_Y"], 3)] if p.get("LABEL_X") is not None else None,
+            "labelMinZoom": p.get("MIN_LABEL"),
             "bbox": focus_bbox(feat["geometry"], anchor),
             "admin1Count": 0,
         }
@@ -824,7 +846,7 @@ def write_meta() -> None:
         {
             "generatedAt": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d"),
             "sources": [
-                {"name": "World Bank WDI (SP.POP.TOTL, AG.SRF.TOTL.K2)", "url": "https://data.worldbank.org", "license": "CC BY 4.0", "usedFor": "Popolazione e superficie degli Stati"},
+                {"name": "World Bank WDI (SP.POP.TOTL, AG.SRF.TOTL.K2, NY.GDP.MKTP.CD, NY.GDP.PCAP.CD)", "url": "https://data.worldbank.org", "license": "CC BY 4.0", "usedFor": "Popolazione, superficie, PIL e PIL pro capite degli Stati"},
                 {"name": "Wikidata", "url": "https://www.wikidata.org", "license": "CC0", "usedFor": "Capitali, regioni (popolazione, superficie, capoluogo)"},
                 {"name": "GeoNames (cities5000, alternateNames)", "url": "https://www.geonames.org", "license": "CC BY 4.0", "usedFor": "Città principali, popolazione e nomi italiani"},
                 {"name": "Natural Earth", "url": "https://www.naturalearthdata.com", "license": "Public domain", "usedFor": "Confini di Stati e regioni"},

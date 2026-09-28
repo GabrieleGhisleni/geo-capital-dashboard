@@ -14,30 +14,38 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
 import { glyphsUrl, type Dataset } from '../data'
-import type { HoverTarget, Projection, Region } from '../types'
+import { installWheelGestures } from '../gestures'
+import mapFonts from '../mapFonts.json'
+import { projectBBox, projectFeatureCollection, toEqualEarth } from '../projection'
+import type { City, HoverTarget, Projection, Region } from '../types'
 import type { Theme } from '../useTheme'
 import type { ViewDef } from '../views'
 
 // Vite cannot follow MapLibre's computed worker URL, so point it at the bundled worker explicitly.
 setWorkerUrl(workerUrl)
 
-export type ClassMap = Record<string, number>
+/** Scale position per feature id: 0–1 along the ramp, -1 = no data. Missing id = not colored. */
+export type ValueMap = Record<string, number>
 
 type SymbolLayout = NonNullable<Extract<StyleSpecification['layers'][number], { type: 'symbol' }>['layout']>
+type BBox = [number, number, number, number]
 
 type Props = {
   data: Dataset
   view: ViewDef
   projection: Projection
   theme: Theme
-  ramp: string[]
-  countryClasses: ClassMap
+  ramp: string[] | null
+  countryValues: ValueMap
   focusIds: Set<string>
   selectedId: string | null
   regions: FeatureCollection<Geometry, Region> | null
-  regionClasses: ClassMap
+  /** Empty when the metric has no regional data: the country then stays colored as a whole. */
+  regionValues: ValueMap
   showCapitals: boolean
   showCities: boolean
+  /** Country names on the map (hidden while studying, so they don't give answers away). */
+  labels: boolean
   padding: PaddingOptions
   onHover: (target: HoverTarget | null, x: number, y: number) => void
   onSelect: (countryId: string | null) => void
@@ -45,28 +53,32 @@ type Props = {
 
 const PALETTE = {
   light: {
-    space: '#f3f2ee',
-    ocean: '#dfe7ef',
-    land: '#e6e4de',
-    noData: '#c9c7c0',
-    border: '#fcfcfb',
-    outline: '#0b0b0b',
-    text: '#0b0b0b',
-    textMuted: '#52514e',
-    halo: '#fcfcfb',
-    dot: '#fcfcfb',
+    ocean: '#d5e3ec',
+    land: '#f4f0e8',
+    noData: '#e2ddd3',
+    border: '#ffffff',
+    outline: '#1d2330',
+    text: '#1d2330',
+    textMuted: '#5b6272',
+    countryLabel: '#6b6358',
+    halo: 'rgba(255, 255, 255, 0.92)',
+    dot: '#ffffff',
+    sky: '#eaf1f6',
+    horizon: '#ffffff',
   },
   dark: {
-    space: '#121211',
-    ocean: '#1d2229',
-    land: '#2f2f2c',
-    noData: '#46463f',
-    border: '#1a1a19',
+    ocean: '#15202b',
+    land: '#2a2f38',
+    noData: '#363c46',
+    border: '#0f151c',
     outline: '#ffffff',
-    text: '#ffffff',
-    textMuted: '#c3c2b7',
-    halo: '#1a1a19',
-    dot: '#1a1a19',
+    text: '#f1f3f7',
+    textMuted: '#aab2c0',
+    countryLabel: '#c9c1b4',
+    halo: 'rgba(15, 21, 28, 0.9)',
+    dot: '#0f151c',
+    sky: '#0b1016',
+    horizon: '#2a3a4c',
   },
 } as const
 
@@ -78,58 +90,99 @@ const L = {
   countryHover: 'country-hover',
   regionHover: 'region-hover',
   countrySelected: 'country-selected',
-  citiesAllDot: 'cities-all-dot',
-  citiesAllLabel: 'cities-all-label',
-  citiesDot: 'cities-dot',
-  citiesLabel: 'cities-label',
-  regionCapDot: 'region-cap-dot',
-  regionCapLabel: 'region-cap-label',
-  capitalDot: 'capital-dot',
-  capitalLabel: 'capital-label',
+  countryLabel: 'country-label',
+  citiesAll: 'cities-all',
+  cities: 'cities',
+  regionCap: 'region-cap',
+  capital: 'capital',
 } as const
 
-const POINT_LAYERS = [
-  L.capitalDot,
-  L.capitalLabel,
-  L.regionCapDot,
-  L.regionCapLabel,
-  L.citiesDot,
-  L.citiesLabel,
-  L.citiesAllDot,
-  L.citiesAllLabel,
-]
+const POINT_LAYERS = [L.capital, L.regionCap, L.cities, L.citiesAll]
 const POLYGON_LAYERS = [L.regionFill, L.countryFill]
 const HIT_RADIUS = 6
+const FONT_MEDIUM = ['Manrope Medium']
+const FONT_BOLD = ['Manrope Bold']
+const FONT_SERIF = ['Fraunces SemiBold']
+/** Glyph PBFs (Noto) cover scripts Manrope lacks; map the Manrope stack names onto them. */
+const GLYPH_FALLBACK: Record<string, string> = {
+  'Manrope Medium': 'Noto Sans Regular',
+  'Manrope Bold': 'Noto Sans Bold',
+  'Fraunces SemiBold': 'Noto Sans Bold',
+}
 
 const empty: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
-function classColor(ramp: string[], land: string, noData: string): ExpressionSpecification {
+function fontFaces(): StyleSpecification['font-faces'] {
+  const base = new URL(`${import.meta.env.BASE_URL}fonts/map/`, window.location.href).href
+  return Object.fromEntries(
+    Object.entries(mapFonts).map(([name, faces]) => [
+      name,
+      faces.map((f) => ({ url: base + f.file, 'unicode-range': f['unicode-range'] })),
+    ]),
+  )
+}
+
+/** Continuous color from the `t` feature-state (0–1), with explicit no-data and uncolored states. */
+function fillColor(ramp: string[] | null, land: string, noData: string): ExpressionSpecification {
+  if (!ramp) return ['literal', land] as unknown as ExpressionSpecification
+  const t: ExpressionSpecification = ['to-number', ['coalesce', ['feature-state', 't'], -2]]
   return [
-    'match',
-    ['coalesce', ['feature-state', 'cls'], -1],
-    -2,
-    noData,
-    ...ramp.flatMap((color, i) => [i, color]),
+    'case',
+    ['<', t, -1.5],
     land,
+    ['<', t, 0],
+    noData,
+    ['interpolate', ['linear'], t, ...ramp.flatMap((c, i) => [i / (ramp.length - 1), c])],
   ] as ExpressionSpecification
 }
 
-const cityRadius: ExpressionSpecification = [
+/** City dots grow gently with population (and zoom), always smaller than capitals. */
+const cityIconSize: ExpressionSpecification = [
   'interpolate',
   ['linear'],
-  ['sqrt', ['get', 'population']],
-  300,
-  2.5,
-  1000,
-  4,
-  3000,
+  ['zoom'],
+  3,
+  ['interpolate', ['linear'], ['sqrt', ['get', 'population']], 300, 0.45, 3000, 0.75],
   7,
+  ['interpolate', ['linear'], ['sqrt', ['get', 'population']], 300, 0.6, 3000, 1],
 ]
 
-function pointCollection<P>(
-  items: P[],
-  lngLat: (p: P) => [number, number] | null,
-): FeatureCollection<Point, P> {
+type Palette = (typeof PALETTE)[Theme]
+
+/** Dot icons, drawn on a canvas so symbol collision can keep labels from sitting on them. */
+const DOTS: Record<string, (p: Palette) => { fill: string; stroke: string; size: number; line: number }> = {
+  'dot-capital': (p) => ({ fill: p.dot, stroke: p.text, size: 11, line: 2.4 }),
+  'dot-region': (p) => ({ fill: p.text, stroke: p.dot, size: 9, line: 1.6 }),
+  'dot-city-strong': (p) => ({ fill: p.dot, stroke: p.text, size: 8, line: 1.4 }),
+  'dot-city': (p) => ({ fill: p.dot, stroke: p.textMuted, size: 7, line: 1.2 }),
+}
+const DOT_PIXEL_RATIO = 3
+
+function drawDot(spec: ReturnType<(typeof DOTS)[string]>) {
+  const px = Math.ceil(spec.size * DOT_PIXEL_RATIO)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = px
+  const ctx = canvas.getContext('2d')!
+  const r = px / 2 - (spec.line * DOT_PIXEL_RATIO) / 2
+  ctx.beginPath()
+  ctx.arc(px / 2, px / 2, r, 0, Math.PI * 2)
+  ctx.fillStyle = spec.fill
+  ctx.fill()
+  ctx.lineWidth = spec.line * DOT_PIXEL_RATIO
+  ctx.strokeStyle = spec.stroke
+  ctx.stroke()
+  return ctx.getImageData(0, 0, px, px)
+}
+
+function syncDotImages(map: MapLibre, theme: Theme) {
+  for (const [id, spec] of Object.entries(DOTS)) {
+    const img = drawDot(spec(PALETTE[theme]))
+    if (map.hasImage(id)) map.updateImage(id, img)
+    else map.addImage(id, img, { pixelRatio: DOT_PIXEL_RATIO })
+  }
+}
+
+function pointCollection<P>(items: P[], lngLat: (p: P) => [number, number] | null): FeatureCollection<Point, P> {
   const features: Feature<Point, P>[] = []
   for (const item of items) {
     const c = lngLat(item)
@@ -138,34 +191,65 @@ function pointCollection<P>(
   return { type: 'FeatureCollection', features }
 }
 
+/** All source data in real lon/lat; the equal-earth view re-projects it before handing it to MapLibre. */
+function baseSources(data: Dataset) {
+  const countries = Object.values(data.countries)
+  return {
+    countries: data.shapes as FeatureCollection,
+    countryLabels: pointCollection(
+      countries.filter((c) => c.continent !== 'Antarctica'),
+      (c) => c.label,
+    ) as FeatureCollection,
+    capitals: pointCollection(
+      countries.flatMap((c) => c.capitals.map((cap) => ({ ...cap, countryId: c.id, sort: -(c.population ?? 0) }))),
+      (c) => [c.lon, c.lat],
+    ) as FeatureCollection,
+    cities: pointCollection<City>(data.cities, (c) => [c.lon, c.lat]) as FeatureCollection,
+  }
+}
+
+function inView<T extends FeatureCollection>(fc: T, projection: Projection): T {
+  return projection === 'equal-earth' ? (projectFeatureCollection(fc) as T) : fc
+}
+
+function renderProjection(projection: Projection): 'globe' | 'mercator' {
+  return projection === 'globe' ? 'globe' : 'mercator'
+}
+
 function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleSpecification {
   const p = PALETTE[theme]
-  const capitals = pointCollection(
-    Object.values(data.countries).flatMap((c) =>
-      c.capitals.map((cap) => ({ ...cap, countryId: c.id, sort: -(c.population ?? 0) })),
-    ),
-    (c) => [c.lon, c.lat],
-  )
-  const cities = pointCollection(data.cities, (c) => [c.lon, c.lat])
-  const label: SymbolLayout = {
+  const src = baseSources(data)
+  // Dot + optional label: when space is tight the name gives way, the dot stays.
+  const place: SymbolLayout = {
     'text-field': ['get', 'name'],
-    'text-font': ['Noto Sans Regular'],
+    'text-font': FONT_MEDIUM,
     'text-size': 11,
-    'text-offset': [0, 0.9],
-    'text-anchor': 'top',
+    'text-variable-anchor': ['top', 'bottom', 'right', 'left'],
+    'text-radial-offset': 0.65,
+    'text-justify': 'auto',
     'text-max-width': 8,
+    'text-optional': true,
     'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'population'], 0]],
   }
+  const halo = { 'text-halo-color': p.halo, 'text-halo-width': 1.6, 'text-halo-blur': 0.4 }
 
   return {
     version: 8,
     glyphs: glyphsUrl(),
-    projection: { type: projection },
+    'font-faces': fontFaces(),
+    projection: { type: renderProjection(projection) },
+    sky: {
+      'sky-color': p.sky,
+      'horizon-color': p.horizon,
+      'fog-color': p.sky,
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 0.6, 7, 0],
+    },
     sources: {
-      countries: { type: 'geojson', data: data.shapes, promoteId: 'id' },
+      countries: { type: 'geojson', data: inView(src.countries, projection), promoteId: 'id' },
+      countryLabels: { type: 'geojson', data: inView(src.countryLabels, projection) },
       regions: { type: 'geojson', data: empty, promoteId: 'id' },
-      capitals: { type: 'geojson', data: capitals },
-      cities: { type: 'geojson', data: cities },
+      capitals: { type: 'geojson', data: inView(src.capitals, projection) },
+      cities: { type: 'geojson', data: inView(src.cities, projection) },
       regionCapitals: { type: 'geojson', data: empty },
     },
     layers: [
@@ -175,34 +259,38 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         type: 'fill',
         source: 'countries',
         paint: {
-          'fill-color': classColor([], p.land, p.noData),
+          'fill-color': fillColor(null, p.land, p.noData),
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'hidden'], false],
             0,
             ['boolean', ['feature-state', 'dim'], false],
-            0.35,
+            0.3,
             1,
           ],
+          'fill-opacity-transition': { duration: 400 },
         },
       },
       {
         id: L.regionFill,
         type: 'fill',
         source: 'regions',
-        paint: { 'fill-color': classColor([], p.land, p.noData) },
+        paint: {
+          'fill-color': fillColor(null, p.land, p.noData),
+          'fill-opacity': ['case', ['==', ['typeof', ['feature-state', 't']], 'number'], 1, 0],
+        },
       },
       {
         id: L.regionBorder,
         type: 'line',
         source: 'regions',
-        paint: { 'line-color': p.border, 'line-width': 0.8 },
+        paint: { 'line-color': p.border, 'line-width': 0.9, 'line-opacity': 0.9 },
       },
       {
         id: L.countryBorder,
         type: 'line',
         source: 'countries',
-        paint: { 'line-color': p.border, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.5, 5, 1.2] },
+        paint: { 'line-color': p.border, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.4, 5, 1.2] },
       },
       {
         id: L.regionHover,
@@ -210,8 +298,8 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         source: 'regions',
         paint: {
           'line-color': p.outline,
-          'line-width': 1.5,
-          'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0],
+          'line-width': 1.6,
+          'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0],
         },
       },
       {
@@ -220,8 +308,8 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         source: 'countries',
         paint: {
           'line-color': p.outline,
-          'line-width': 1.5,
-          'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0],
+          'line-width': 1.6,
+          'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0],
         },
       },
       {
@@ -230,96 +318,79 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         source: 'countries',
         paint: {
           'line-color': p.outline,
-          'line-width': 2,
+          'line-width': 2.2,
           'line-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 1, 0],
         },
       },
+      // Symbol layers are placed top-down: capitals first, then regional capitals, country names, cities.
       {
-        id: L.citiesAllDot,
-        type: 'circle',
+        id: L.citiesAll,
+        type: 'symbol',
         source: 'cities',
         minzoom: 4.5,
-        paint: {
-          'circle-radius': cityRadius,
-          'circle-color': p.dot,
-          'circle-stroke-color': p.textMuted,
-          'circle-stroke-width': 1,
+        layout: {
+          ...place,
+          'icon-image': 'dot-city',
+          'icon-size': cityIconSize,
+          'text-field': ['step', ['zoom'], '', 5.5, ['get', 'name']],
+          'text-size': 10.5,
         },
+        paint: { 'text-color': p.textMuted, ...halo },
       },
       {
-        id: L.citiesAllLabel,
-        type: 'symbol',
-        source: 'cities',
-        minzoom: 5,
-        layout: { ...label, 'text-size': 10 },
-        paint: { 'text-color': p.textMuted, 'text-halo-color': p.halo, 'text-halo-width': 1.2 },
-      },
-      {
-        id: L.citiesDot,
-        type: 'circle',
-        source: 'cities',
-        filter: ['==', ['get', 'countryId'], ''],
-        paint: {
-          'circle-radius': cityRadius,
-          'circle-color': p.dot,
-          'circle-stroke-color': p.text,
-          'circle-stroke-width': 1.2,
-        },
-      },
-      {
-        id: L.citiesLabel,
+        id: L.cities,
         type: 'symbol',
         source: 'cities',
         filter: ['==', ['get', 'countryId'], ''],
-        layout: { ...label, 'text-size': 10.5 },
-        paint: { 'text-color': p.textMuted, 'text-halo-color': p.halo, 'text-halo-width': 1.2 },
+        layout: { ...place, 'icon-image': 'dot-city-strong', 'icon-size': cityIconSize, 'text-size': 11 },
+        paint: { 'text-color': p.textMuted, ...halo },
       },
       {
-        id: L.regionCapDot,
-        type: 'circle',
-        source: 'regionCapitals',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': p.text,
-          'circle-stroke-color': p.halo,
-          'circle-stroke-width': 1.5,
+        id: L.countryLabel,
+        type: 'symbol',
+        source: 'countryLabels',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': FONT_SERIF,
+          'text-transform': 'uppercase',
+          'text-letter-spacing': 0.14,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 2, 9.5, 5, 13],
+          'text-max-width': 8,
+          'text-padding': 4,
+          'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'population'], 0]],
         },
+        paint: { 'text-color': p.countryLabel, ...halo, 'text-opacity': ['step', ['zoom'], 0, 2, 1] },
       },
       {
-        id: L.regionCapLabel,
+        id: L.regionCap,
         type: 'symbol',
         source: 'regionCapitals',
         layout: {
-          ...label,
+          ...place,
+          'icon-image': 'dot-region',
+          'icon-allow-overlap': true,
           'text-field': ['get', 'capName'],
-          'text-font': ['Noto Sans Bold'],
-          'text-size': 11,
+          'text-font': FONT_BOLD,
+          'text-size': 11.5,
           'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'capPop'], ['get', 'population'], 0]],
         },
-        paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.4 },
+        paint: { 'text-color': p.text, ...halo },
       },
       {
-        id: L.capitalDot,
-        type: 'circle',
-        source: 'capitals',
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 3, 5, 5.5],
-          'circle-color': p.dot,
-          'circle-stroke-color': p.text,
-          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 1, 1.5, 5, 2.5],
-        },
-      },
-      {
-        id: L.capitalLabel,
+        id: L.capital,
         type: 'symbol',
         source: 'capitals',
         layout: {
-          ...label,
-          'text-font': ['Noto Sans Bold'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 13],
+          ...place,
+          'icon-image': 'dot-capital',
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 1, 0.55, 4, 0.85, 7, 1],
+          'icon-allow-overlap': true,
+          'text-field': ['step', ['zoom'], '', 2.3, ['get', 'name']],
+          'text-font': FONT_BOLD,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11.5, 6, 13.5],
           'symbol-sort-key': ['get', 'sort'],
         },
-        paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.5 },
+        paint: { 'text-color': p.text, ...halo },
       },
     ],
   }
@@ -328,38 +399,31 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
 function applyTheme(map: MapLibre, theme: Theme) {
   const p = PALETTE[theme]
   map.setPaintProperty('ocean', 'background-color', p.ocean)
+  map.setSky({ ...map.getSky(), 'sky-color': p.sky, 'horizon-color': p.horizon, 'fog-color': p.sky })
   map.setPaintProperty(L.countryBorder, 'line-color', p.border)
   map.setPaintProperty(L.regionBorder, 'line-color', p.border)
   for (const id of [L.countryHover, L.regionHover, L.countrySelected]) map.setPaintProperty(id, 'line-color', p.outline)
-  for (const id of [L.citiesAllDot, L.citiesDot, L.capitalDot]) map.setPaintProperty(id, 'circle-color', p.dot)
-  map.setPaintProperty(L.citiesAllDot, 'circle-stroke-color', p.textMuted)
-  map.setPaintProperty(L.citiesDot, 'circle-stroke-color', p.text)
-  map.setPaintProperty(L.capitalDot, 'circle-stroke-color', p.text)
-  map.setPaintProperty(L.regionCapDot, 'circle-color', p.text)
-  map.setPaintProperty(L.regionCapDot, 'circle-stroke-color', p.halo)
-  for (const id of [L.citiesAllLabel, L.citiesLabel]) map.setPaintProperty(id, 'text-color', p.textMuted)
-  for (const id of [L.regionCapLabel, L.capitalLabel]) map.setPaintProperty(id, 'text-color', p.text)
-  for (const id of [L.citiesAllLabel, L.citiesLabel, L.regionCapLabel, L.capitalLabel])
+  syncDotImages(map, theme)
+  for (const id of [L.citiesAll, L.cities]) map.setPaintProperty(id, 'text-color', p.textMuted)
+  for (const id of [L.regionCap, L.capital]) map.setPaintProperty(id, 'text-color', p.text)
+  map.setPaintProperty(L.countryLabel, 'text-color', p.countryLabel)
+  for (const id of [L.countryLabel, L.citiesAll, L.cities, L.regionCap, L.capital])
     map.setPaintProperty(id, 'text-halo-color', p.halo)
 }
 
 function hoverTarget(f: MapGeoJSONFeature): HoverTarget | null {
   const props = f.properties
   switch (f.layer.id) {
-    case L.capitalDot:
-    case L.capitalLabel:
+    case L.capital:
       return {
         kind: 'capital',
         countryId: props.countryId,
         capital: { name: props.name, lat: props.lat, lon: props.lon, population: props.population ?? null },
       }
-    case L.regionCapDot:
-    case L.regionCapLabel:
+    case L.regionCap:
       return { kind: 'region-capital', region: props as Region }
-    case L.citiesDot:
-    case L.citiesLabel:
-    case L.citiesAllDot:
-    case L.citiesAllLabel:
+    case L.cities:
+    case L.citiesAll:
       return {
         kind: 'city',
         city: { name: props.name, lat: props.lat, lon: props.lon, population: props.population, countryId: props.countryId },
@@ -389,16 +453,22 @@ export function MapView(props: Props) {
     const map = new MapLibre({
       container: container.current!,
       style: buildStyle(data, projection, theme),
-      center: [12, 30],
-      zoom: 1.4,
-      minZoom: 0.8,
+      center: [12, 48],
+      zoom: 3,
+      minZoom: 0.6,
       maxZoom: 10,
       attributionControl: { compact: true, customAttribution: 'Natural Earth · GeoNames · World Bank · Wikidata' },
       renderWorldCopies: false,
+      transformRequest: (url, type) => {
+        if (type !== 'Glyphs') return { url }
+        return { url: url.replace(/(Manrope|Fraunces)%20\w+/, (m) => encodeURIComponent(GLYPH_FALLBACK[decodeURIComponent(m)] ?? m)) }
+      },
     })
     map.addControl(new NavigationControl({ visualizePitch: false, showCompass: false }), 'bottom-right')
     map.dragRotate.disable()
     map.touchZoomRotate.disableRotation()
+    map.on('styleimagemissing', () => syncDotImages(map, latest.current.theme))
+    const uninstallGestures = installWheelGestures(map)
     mapRef.current = map
     if (import.meta.env.DEV) Object.assign(window, { __map: map })
 
@@ -419,7 +489,10 @@ export function MapView(props: Props) {
       const layers = POINT_LAYERS.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none')
       const points = map.queryRenderedFeatures(box, { layers })
       if (points.length) return points[0]
-      return map.queryRenderedFeatures([x, y], { layers: POLYGON_LAYERS })[0]
+      // Uncolored regions (metric without regional data) let the hover fall through to the country.
+      return map
+        .queryRenderedFeatures([x, y], { layers: POLYGON_LAYERS })
+        .find((f) => f.layer.id !== L.regionFill || typeof f.state.t === 'number')
     }
 
     map.on('mousemove', (e) => {
@@ -453,19 +526,23 @@ export function MapView(props: Props) {
     })
     return () => {
       readyRef.current = false
+      uninstallGestures()
       map.remove()
       mapRef.current = null
     }
   }, [])
 
-  const { projection, theme, ramp, countryClasses, focusIds, selectedId, regions, regionClasses } = props
-  const { showCapitals, showCities, view, padding } = props
+  const { projection, theme, ramp, countryValues, focusIds, selectedId, regions, regionValues } = props
+  const { showCapitals, showCities, labels, view, padding } = props
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    map.setProjection({ type: projection })
-    moveCamera(map, latest.current, true)
+    map.setProjection({ type: renderProjection(projection) })
+    const src = baseSources(latest.current.data)
+    for (const [id, fc] of Object.entries(src)) map.getSource<GeoJSONSource>(id)!.setData(inView(fc, projection))
+    syncAll(map, latest.current)
+    moveCamera(map, latest.current, false)
   }, [projection])
 
   useEffect(() => {
@@ -479,7 +556,7 @@ export function MapView(props: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (map && readyRef.current) syncAll(map, latest.current)
-  }, [ramp, countryClasses, focusIds, selectedId, regions, regionClasses, showCapitals, showCities])
+  }, [ramp, countryValues, focusIds, selectedId, regions, regionValues, showCapitals, showCities, labels])
 
   useEffect(() => {
     const map = mapRef.current
@@ -491,65 +568,58 @@ export function MapView(props: Props) {
 
 function syncColors(map: MapLibre, props: Props) {
   const p = PALETTE[props.theme]
-  map.setPaintProperty(L.countryFill, 'fill-color', classColor(props.ramp, p.land, p.noData))
-  map.setPaintProperty(L.regionFill, 'fill-color', classColor(props.ramp, p.land, p.noData))
+  map.setPaintProperty(L.countryFill, 'fill-color', fillColor(props.ramp, p.land, p.noData))
+  map.setPaintProperty(L.regionFill, 'fill-color', fillColor(props.ramp, p.land, p.noData))
 }
 
 function syncAll(map: MapLibre, props: Props) {
-  const { data, countryClasses, focusIds, selectedId, regions, regionClasses } = props
+  const { data, countryValues, focusIds, selectedId, regions, regionValues, projection } = props
   syncColors(map, props)
 
-  const hasRegions = Boolean(regions && regions.features.length)
+  const regionsColored = Boolean(regions?.features.length) && Object.keys(regionValues).length > 0
   for (const id of Object.keys(data.countries)) {
     map.setFeatureState(
       { source: 'countries', id },
       {
-        cls: countryClasses[id] ?? null,
+        t: countryValues[id] ?? null,
         dim: selectedId ? id !== selectedId : !focusIds.has(id),
-        hidden: hasRegions && id === selectedId,
+        hidden: regionsColored && id === selectedId,
         selected: id === selectedId,
       },
     )
   }
 
-  const regionSource = map.getSource<GeoJSONSource>('regions')!
-  regionSource.setData(regions ?? empty)
-  if (regions) {
-    for (const f of regions.features) {
-      map.setFeatureState({ source: 'regions', id: f.properties.id }, { cls: regionClasses[f.properties.id] ?? null })
-    }
+  map.getSource<GeoJSONSource>('regions')!.setData(regions ? inView(regions, projection) : empty)
+  for (const f of regions?.features ?? []) {
+    map.setFeatureState({ source: 'regions', id: f.properties.id }, { t: regionValues[f.properties.id] ?? null })
   }
-  map
-    .getSource<GeoJSONSource>('regionCapitals')!
-    .setData(
-      pointCollection(
-        (regions?.features ?? []).map((f) => f.properties),
-        (r) => (r.capLat != null && r.capLon != null ? [r.capLon, r.capLat] : null),
-      ),
-    )
+  const regionCaps = pointCollection(
+    (regions?.features ?? []).map((f) => f.properties),
+    (r) => (r.capLat != null && r.capLon != null ? [r.capLon, r.capLat] : null),
+  )
+  map.getSource<GeoJSONSource>('regionCapitals')!.setData(inView(regionCaps, projection))
 
   // Regional capitals already have their own marker: skip the same city in the cities layer.
-  const capPoints = (regions?.features ?? []).flatMap((f) =>
-    f.properties.capLat != null && f.properties.capLon != null ? [[f.properties.capLat, f.properties.capLon]] : [],
-  )
-  const shadowed = (selectedId ? data.citiesByCountry[selectedId] ?? [] : [])
-    .filter((c) => capPoints.some(([lat, lon]) => Math.hypot((c.lon - lon) * Math.cos((lat * Math.PI) / 180), c.lat - lat) * 111 < 7))
+  const capPoints = regionCaps.features.map((f) => f.geometry.coordinates)
+  const shadowed = (selectedId ? (data.citiesByCountry[selectedId] ?? []) : [])
+    .filter((c) =>
+      capPoints.some(([lon, lat]) => Math.hypot((c.lon - lon) * Math.cos((lat * Math.PI) / 180), c.lat - lat) * 111 < 7),
+    )
     .map((c) => c.name)
   const countryFilter: ExpressionSpecification = [
     'all',
     ['==', ['get', 'countryId'], selectedId ?? ''],
     ['!', ['in', ['get', 'name'], ['literal', shadowed]]],
   ]
-  map.setFilter(L.citiesDot, countryFilter)
-  map.setFilter(L.citiesLabel, countryFilter)
-  map.setFilter(L.citiesAllDot, ['!=', ['get', 'countryId'], selectedId ?? ''])
-  map.setFilter(L.citiesAllLabel, ['!=', ['get', 'countryId'], selectedId ?? ''])
+  map.setFilter(L.cities, countryFilter)
+  map.setFilter(L.citiesAll, ['!=', ['get', 'countryId'], selectedId ?? ''])
+  // A selected country's name would sit on top of its regions and capitals.
+  map.setFilter(L.countryLabel, ['!=', ['get', 'id'], selectedId ?? ''])
 
   const vis = (on: boolean) => (on ? 'visible' : 'none')
-  for (const id of [L.capitalDot, L.capitalLabel]) map.setLayoutProperty(id, 'visibility', vis(props.showCapitals))
-  for (const id of [L.regionCapDot, L.regionCapLabel]) map.setLayoutProperty(id, 'visibility', vis(props.showCapitals))
-  for (const id of [L.citiesDot, L.citiesLabel, L.citiesAllDot, L.citiesAllLabel])
-    map.setLayoutProperty(id, 'visibility', vis(props.showCities))
+  for (const id of [L.capital, L.regionCap]) map.setLayoutProperty(id, 'visibility', vis(props.showCapitals))
+  for (const id of [L.cities, L.citiesAll]) map.setLayoutProperty(id, 'visibility', vis(props.showCities))
+  map.setLayoutProperty(L.countryLabel, 'visibility', vis(props.labels))
 }
 
 // cameraForBounds sizes bounds as if on a flat map; on the globe the country's near face bulges
@@ -563,10 +633,13 @@ function moveCamera(map: MapLibre, props: Props, animate: boolean) {
   map.setPadding(padding)
   const narrow = map.getContainer().clientWidth < 700
   if (!selectedId && view.id === 'world') {
-    map.easeTo({ center: [12, 25], zoom: narrow ? 0.45 : 1.5, duration })
+    const center: [number, number] = projection === 'equal-earth' ? toEqualEarth(12, 25) : [12, 25]
+    const zoom = projection === 'globe' ? (narrow ? 0.45 : 1.5) : narrow ? 0.2 : 1.1
+    map.easeTo({ center, zoom, duration })
     return
   }
-  const [w, s, e, n] = selectedId && data.countries[selectedId] ? data.countries[selectedId].bbox : view.bounds
+  const bbox: BBox = selectedId && data.countries[selectedId] ? data.countries[selectedId].bbox : view.bounds
+  const [w, s, e, n] = projection === 'equal-earth' ? projectBBox(bbox) : bbox
   const camera = map.cameraForBounds([[w, s], [e, n]] as LngLatBoundsLike, { padding: 24, maxZoom: 7 })
   if (!camera) return // the cards leave no room (transient while the viewport is resizing)
   const zoom = (camera.zoom ?? map.getZoom()) - (projection === 'globe' ? GLOBE_FIT_CORRECTION : 0)

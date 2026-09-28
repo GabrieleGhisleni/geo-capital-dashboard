@@ -17,9 +17,17 @@ export type Country = {
   population: number | null
   populationYear: number | null
   populationSource: string | null
+  /** Current US$, World Bank. */
+  gdp: number | null
+  gdpYear: number | null
+  gdpPerCapita: number | null
+  gdpPerCapitaYear: number | null
   area: number | null
   areaSource: string | null
   capitals: Capital[]
+  /** Natural Earth label point [lon, lat] and the zoom from which the name should appear. */
+  label: [number, number] | null
+  labelMinZoom: number | null
   bbox: [number, number, number, number]
   admin1Count: number
 }
@@ -54,7 +62,7 @@ export type Meta = {
   sources: { name: string; url: string; license: string; usedFor: string }[]
 }
 
-export type Metric = 'population' | 'area' | 'density' | 'none'
+export type Metric = 'population' | 'area' | 'density' | 'gdp' | 'gdpPerCapita' | 'none'
 
 export type ViewId =
   | 'world'
@@ -65,7 +73,7 @@ export type ViewId =
   | 'south-america'
   | 'oceania'
 
-export type Projection = 'globe' | 'mercator'
+export type Projection = 'globe' | 'equal-earth' | 'mercator'
 
 export type HoverTarget =
   | { kind: 'country'; id: string }

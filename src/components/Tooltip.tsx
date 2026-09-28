@@ -1,10 +1,11 @@
 import type { Dataset } from '../data'
 import { formatMetric, formatNumber, metricValue } from '../scale'
-import type { HoverTarget } from '../types'
+import type { HoverTarget, Metric } from '../types'
 
 type Props = {
   data: Dataset
   hover: { target: HoverTarget; x: number; y: number }
+  metric: Metric
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -16,7 +17,7 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-function Body({ data, target }: { data: Dataset; target: HoverTarget }) {
+function Body({ data, target, metric }: { data: Dataset; target: HoverTarget; metric: Metric }) {
   switch (target.kind) {
     case 'country': {
       const c = data.countries[target.id]
@@ -29,6 +30,12 @@ function Body({ data, target }: { data: Dataset; target: HoverTarget }) {
           <Row label={`Popolazione${c.populationYear ? ` (${c.populationYear})` : ''}`} value={formatNumber(c.population)} />
           <Row label="Superficie" value={formatMetric(c.area, 'area')} />
           <Row label="Densità" value={formatMetric(metricValue(c, 'density'), 'density')} />
+          {(metric === 'gdp' || metric === 'gdpPerCapita') && (
+            <>
+              <Row label={`PIL${c.gdpYear ? ` (${c.gdpYear})` : ''}`} value={formatMetric(c.gdp, 'gdp')} />
+              <Row label="PIL pro capite" value={formatMetric(c.gdpPerCapita, 'gdpPerCapita')} />
+            </>
+          )}
           {top.length > 0 && (
             <div className="tt-cities">
               <span className="tt-label">Città principali</span>
@@ -89,7 +96,7 @@ function Body({ data, target }: { data: Dataset; target: HoverTarget }) {
   }
 }
 
-export function Tooltip({ data, hover }: Props) {
+export function Tooltip({ data, hover, metric }: Props) {
   const flipX = hover.x > window.innerWidth - 300
   const flipY = hover.y > window.innerHeight - 280
   const style = {
@@ -100,7 +107,7 @@ export function Tooltip({ data, hover }: Props) {
   }
   return (
     <div className="tooltip" style={style} role="tooltip">
-      <Body data={data} target={hover.target} />
+      <Body data={data} target={hover.target} metric={metric} />
     </div>
   )
 }

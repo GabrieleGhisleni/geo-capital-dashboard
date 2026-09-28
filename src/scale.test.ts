@@ -1,44 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import { classIndex, metricValue, niceRound, quantileBreaks, rampFor, RAMP_LIGHT } from './scale'
+import { colorAt, formatMetric, logDomain, metricValue, niceLogTicks, RAMPS, scalePosition } from './scale'
 
-describe('quantileBreaks', () => {
-  it('splits a uniform range into ascending thresholds', () => {
-    const values = Array.from({ length: 700 }, (_, i) => i + 1)
-    const breaks = quantileBreaks(values, 7)
-    expect(breaks).toHaveLength(6)
-    expect([...breaks].sort((a, b) => a - b)).toEqual(breaks)
-    expect(breaks[0]).toBe(100)
+describe('logDomain', () => {
+  it('trims outliers to the 2nd–98th percentile on large sets', () => {
+    const values = [1, ...Array.from({ length: 98 }, (_, i) => 1000 * (i + 1)), 1e12]
+    const [lo, hi] = logDomain(values)!
+    expect(lo).toBeGreaterThan(3)
+    expect(hi).toBeLessThan(6)
   })
 
-  it('collapses duplicate thresholds for skewed data', () => {
-    const values = [...Array(50).fill(1), 1000]
-    expect(quantileBreaks(values, 7)).toEqual([])
+  it('ignores non-positive and non-finite values', () => {
+    expect(logDomain([0, -5, NaN, 100, 1000])).toEqual([2, 3])
   })
 
-  it('ignores non-finite values', () => {
-    expect(quantileBreaks([NaN, Infinity, 5, 10], 2)).toEqual([10])
+  it('widens a degenerate domain', () => {
+    expect(logDomain([50, 50])).toEqual([Math.log10(50) - 0.5, Math.log10(50) + 0.5])
   })
-})
 
-describe('classIndex', () => {
-  it('counts thresholds at or below the value', () => {
-    expect(classIndex(5, [10, 20])).toBe(0)
-    expect(classIndex(10, [10, 20])).toBe(1)
-    expect(classIndex(99, [10, 20])).toBe(2)
+  it('returns null without usable values', () => {
+    expect(logDomain([0, NaN])).toBeNull()
   })
 })
 
-describe('niceRound', () => {
-  it('keeps two significant digits', () => {
-    expect(niceRound(58_993_475)).toBe(59_000_000)
-    expect(niceRound(0.1234)).toBeCloseTo(0.12)
+describe('scalePosition', () => {
+  it('maps log values into 0–1 and clamps', () => {
+    expect(scalePosition(100, [1, 3])).toBe(0.5)
+    expect(scalePosition(1, [1, 3])).toBe(0)
+    expect(scalePosition(1e9, [1, 3])).toBe(1)
   })
 })
 
-describe('rampFor', () => {
-  it('spreads colors across the ramp ends', () => {
-    const r = rampFor(3, RAMP_LIGHT)
-    expect(r).toEqual([RAMP_LIGHT[0], RAMP_LIGHT[3], RAMP_LIGHT[6]])
+describe('niceLogTicks', () => {
+  it('uses decades on wide ranges', () => {
+    expect(niceLogTicks([3.2, 8.1])).toEqual([1e4, 1e5, 1e6, 1e7, 1e8])
+  })
+
+  it('falls back to finer round steps on narrow ranges', () => {
+    const ticks = niceLogTicks([Math.log10(40), Math.log10(600)])
+    expect(ticks.length).toBeGreaterThanOrEqual(3)
+    expect(ticks.every((t) => t >= 40 && t <= 600)).toBe(true)
+  })
+
+  it('thins out to the requested maximum', () => {
+    expect(niceLogTicks([0, 9], 4).length).toBeLessThanOrEqual(4)
+  })
+})
+
+describe('colorAt', () => {
+  it('returns the ramp ends and interpolates between stops', () => {
+    const ramp = RAMPS.population
+    expect(colorAt(0, ramp)).toBe(ramp[0])
+    expect(colorAt(1, ramp)).toBe(ramp[ramp.length - 1])
+    expect(colorAt(0.5, ['#000000', '#ffffff'])).toBe('#808080')
   })
 })
 
@@ -47,5 +60,13 @@ describe('metricValue', () => {
     expect(metricValue({ population: 1000, area: 10 }, 'density')).toBe(100)
     expect(metricValue({ population: 1000, area: null }, 'density')).toBeNull()
     expect(metricValue({ population: 1000 }, 'none')).toBeNull()
+  })
+})
+
+describe('formatMetric (US$)', () => {
+  it('uses Italian Mln/Mld units instead of the ambiguous Bln', () => {
+    expect(formatMetric(5_051_000_000_000, 'gdp')).toBe('5051 Mld $') // it-IT groups thousands only from 5 digits
+    expect(formatMetric(2_550_000_000, 'gdp')).toBe('2,6 Mld $')
+    expect(formatMetric(60_496, 'gdpPerCapita')).toBe('60.496 $')
   })
 })

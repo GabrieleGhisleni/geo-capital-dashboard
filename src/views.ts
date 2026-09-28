@@ -45,12 +45,16 @@ export const CONTINENT_LABEL: Record<string, string> = {
   'Seven seas (open ocean)': 'Oceani',
 }
 
-export const METRICS: { id: Metric; label: string; unit: string }[] = [
-  { id: 'population', label: 'Popolazione', unit: 'abitanti' },
-  { id: 'area', label: 'Superficie', unit: 'km²' },
-  { id: 'density', label: 'Densità', unit: 'ab./km²' },
-  { id: 'none', label: 'Nessuno', unit: '' },
+export const METRICS: { id: Metric; label: string; unit: string; regional: boolean }[] = [
+  { id: 'population', label: 'Popolazione', unit: 'abitanti', regional: true },
+  { id: 'area', label: 'Superficie', unit: 'km²', regional: true },
+  { id: 'density', label: 'Densità', unit: 'ab./km²', regional: true },
+  { id: 'gdp', label: 'PIL', unit: 'US$', regional: false },
+  { id: 'gdpPerCapita', label: 'PIL pro capite', unit: 'US$', regional: false },
+  { id: 'none', label: 'Nessuno', unit: '', regional: false },
 ]
+
+export const METRIC_BY_ID = Object.fromEntries(METRICS.map((m) => [m.id, m])) as Record<Metric, (typeof METRICS)[number]>
 
 export const SUBREGION_LABEL: Record<string, string> = {
   'Eastern Africa': 'Africa orientale',

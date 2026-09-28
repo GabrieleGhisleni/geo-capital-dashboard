@@ -2,39 +2,32 @@ import type { FeatureCollection, Geometry } from 'geojson'
 import type { PaddingOptions } from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Controls } from './components/Controls'
-import { MapView, type ClassMap } from './components/MapView'
+import { MapView, type ValueMap } from './components/MapView'
+import { QuizPanel } from './components/QuizPanel'
 import { SidePanel } from './components/SidePanel'
 import { Tooltip } from './components/Tooltip'
 import { loadDataset, loadRegions, type Dataset } from './data'
-import { classIndex, metricValue, quantileBreaks, RAMP_DARK, RAMP_LIGHT, rampFor } from './scale'
+import { buildScale, metricValue, scalePosition, type Scale } from './scale'
 import type { HoverTarget, Metric, Projection, Region, ViewId } from './types'
 import { useTheme } from './useTheme'
-import { VIEW_BY_ID } from './views'
+import { METRIC_BY_ID, VIEW_BY_ID } from './views'
 
-export type Scale = { breaks: number[]; colors: string[] }
+type Measured = { id: string; population?: number | null; area?: number | null; gdp?: number | null; gdpPerCapita?: number | null }
 
-function buildScale(
-  items: { id: string; population?: number | null; area?: number | null }[],
-  metric: Metric,
-  focus: (id: string) => boolean,
-  ramp: string[],
-): { scale: Scale; classes: ClassMap } {
-  const classes: ClassMap = {}
-  if (metric === 'none') return { scale: { breaks: [], colors: [] }, classes }
-  const breaks = quantileBreaks(
-    items.filter((i) => focus(i.id)).map((i) => metricValue(i, metric)).filter((v): v is number => v != null),
+/** Log scale over the items in focus, and each item's position on it (-1 = no data). */
+function colorScale(items: Measured[], metric: Metric, inFocus: (id: string) => boolean) {
+  const values: ValueMap = {}
+  if (metric === 'none') return { scale: null, values }
+  const scale = buildScale(
+    items.filter((i) => inFocus(i.id)).flatMap((i) => metricValue(i, metric) ?? []),
+    metric,
   )
-  const colors = rampFor(breaks.length + 1, ramp)
+  if (!scale) return { scale: null, values }
   for (const item of items) {
     const v = metricValue(item, metric)
-    if (v == null) {
-      classes[item.id] = -2
-      continue
-    }
-    // The map colors by ramp index, so translate the class through the legend colors.
-    classes[item.id] = ramp.indexOf(colors[classIndex(v, breaks)])
+    values[item.id] = v == null ? -1 : scalePosition(v, scale.domain)
   }
-  return { scale: { breaks, colors }, classes }
+  return { scale, values }
 }
 
 function useMedia(query: string) {
@@ -61,15 +54,25 @@ function useControlsHeight(enabled: boolean) {
   return height
 }
 
+function hoveredValue(hover: HoverTarget | null, data: Dataset, metric: Metric, regionsColored: boolean): number | null {
+  if (!hover) return null
+  if (hover.kind === 'country') return data.countries[hover.id] ? metricValue(data.countries[hover.id], metric) : null
+  if (hover.kind === 'region' && regionsColored) return metricValue(hover.region, metric)
+  return null
+}
+
 export default function App() {
   const [data, setData] = useState<Dataset | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [viewId, setViewId] = useState<ViewId>('world')
+  const [viewId, setViewId] = useState<ViewId>('europe')
   const [metric, setMetric] = useState<Metric>('population')
   const [projection, setProjection] = useState<Projection>('globe')
   const [showCapitals, setShowCapitals] = useState(true)
   const [showCities, setShowCities] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [studying, setStudying] = useState(false)
+  /** While studying: the map may show the question's country but hides names until it's answered. */
+  const [quizRevealed, setQuizRevealed] = useState(false)
   const [loadedRegions, setLoadedRegions] = useState<{
     id: string
     fc: FeatureCollection<Geometry, Region> | null
@@ -99,34 +102,36 @@ export default function App() {
   const regionsFailed = Boolean(regionsState && !regionsState.fc)
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelectedId(null)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !studying && setSelectedId(null)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [studying])
 
   const view = VIEW_BY_ID[viewId]
-  const ramp = theme === 'dark' ? RAMP_DARK : RAMP_LIGHT
+  const metricInfo = METRIC_BY_ID[metric]
 
   const focusIds = useMemo(() => {
     if (!data) return new Set<string>()
     return new Set(
       Object.values(data.countries)
-        .filter((c) =>
-          view.continents.length ? view.continents.includes(c.continent) : c.continent !== 'Antarctica',
-        )
+        .filter((c) => (view.continents.length ? view.continents.includes(c.continent) : c.continent !== 'Antarctica'))
         .map((c) => c.id),
     )
   }, [data, view])
 
-  const country = useMemo(() => {
-    if (!data) return { scale: { breaks: [], colors: [] }, classes: {} }
-    return buildScale(Object.values(data.countries), metric, (id) => focusIds.has(id), ramp)
-  }, [data, metric, focusIds, ramp])
-
+  const country = useMemo(
+    () => (data ? colorScale(Object.values(data.countries), metric, (id) => focusIds.has(id)) : { scale: null, values: {} }),
+    [data, metric, focusIds],
+  )
   const region = useMemo(() => {
-    const items = regions?.features.map((f) => f.properties) ?? []
-    return buildScale(items, metric, () => true, ramp)
-  }, [regions, metric, ramp])
+    if (!regions || !metricInfo.regional) return { scale: null as Scale | null, values: {} as ValueMap }
+    return colorScale(
+      regions.features.map((f) => f.properties),
+      metric,
+      () => true,
+    )
+  }, [regions, metric, metricInfo])
+  const regionsColored = Boolean(region.scale)
 
   const controlsHeight = useControlsHeight(narrow && data !== null)
   // Keep the camera framing inside the map area left visible by the floating cards (see index.css widths).
@@ -146,31 +151,46 @@ export default function App() {
     setViewId(id)
   }, [])
 
+  // The quiz drives the map: it flies to the question's country, and names, capitals, cities and
+  // tooltips stay hidden until the question is answered (reveal=true), then everything shows.
+  const onQuizFocus = useCallback((countryId: string | null, reveal: boolean) => {
+    setSelectedId(countryId)
+    setQuizRevealed(reveal)
+  }, [])
+  const toggleStudy = useCallback(() => {
+    setStudying((s) => !s)
+    setQuizRevealed(false)
+    setSelectedId(null)
+  }, [])
+
   if (error) return <div className="fatal">Impossibile caricare i dati: {error}</div>
   if (!data) return <div className="fatal">Caricamento dati…</div>
 
-  const legendScale = selectedId && regions?.features.length ? region.scale : country.scale
-  const legendTitle =
-    selectedId && regions?.features.length ? `Regioni · ${data.countries[selectedId].name}` : view.label
+  const selected = selectedId ? data.countries[selectedId] : null
+  const hideAnswers = studying && !quizRevealed
+  const showRegionScale = Boolean(selected && regionsColored)
+  const legendNote =
+    selected && regions && !metricInfo.regional ? `${metricInfo.label}: dato disponibile solo per Stato` : undefined
 
   return (
-    <div className="app">
+    <div className={`app${studying ? ' app-studying' : ''}`}>
       <MapView
         data={data}
         view={view}
         projection={projection}
         theme={theme}
-        ramp={ramp}
-        countryClasses={country.classes}
+        ramp={(showRegionScale ? region.scale : country.scale)?.ramp ?? null}
+        countryValues={country.values}
         focusIds={focusIds}
         selectedId={selectedId}
         regions={regions}
-        regionClasses={region.classes}
-        showCapitals={showCapitals}
-        showCities={showCities}
+        regionValues={region.values}
+        showCapitals={showCapitals && !hideAnswers}
+        showCities={showCities && !hideAnswers}
+        labels={!hideAnswers}
         padding={padding}
         onHover={onHover}
-        onSelect={setSelectedId}
+        onSelect={studying ? noop : setSelectedId}
       />
       <Controls
         data={data}
@@ -185,20 +205,38 @@ export default function App() {
         showCities={showCities}
         onShowCities={setShowCities}
         onSelectCountry={setSelectedId}
-        scale={legendScale}
-        legendTitle={legendTitle}
+        onStudy={toggleStudy}
+        studying={studying}
+        scale={showRegionScale ? region.scale : country.scale}
+        legendScope={showRegionScale ? `Regioni · ${selected!.name}` : view.label}
+        legendNote={legendNote}
+        hoverValue={hideAnswers ? null : hoveredValue(hover?.target ?? null, data, metric, showRegionScale)}
       />
-      <SidePanel
-        data={data}
-        view={view}
-        metric={metric}
-        focusIds={focusIds}
-        selectedId={selectedId}
-        regions={regions}
-        regionsFailed={regionsFailed}
-        onSelect={setSelectedId}
-      />
-      {hover && !narrow && <Tooltip data={data} hover={hover} />}
+      <aside className="card panel" aria-live="polite">
+        {studying ? (
+          <QuizPanel
+            data={data}
+            scopeIds={focusIds}
+            scopeLabel={view.label}
+            onFocus={onQuizFocus}
+            onExit={toggleStudy}
+          />
+        ) : (
+          <SidePanel
+            data={data}
+            view={view}
+            metric={metric}
+            focusIds={focusIds}
+            selectedId={selectedId}
+            regions={regions}
+            regionsFailed={regionsFailed}
+            onSelect={setSelectedId}
+          />
+        )}
+      </aside>
+      {hover && !narrow && !hideAnswers && <Tooltip data={data} hover={hover} metric={metric} />}
     </div>
   )
 }
+
+function noop() {}

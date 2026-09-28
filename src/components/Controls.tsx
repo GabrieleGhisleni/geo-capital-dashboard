@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Scale } from '../App'
 import type { Dataset } from '../data'
-import { formatCompact } from '../scale'
+import { RAMPS, rampGradient, type Scale } from '../scale'
 import type { Metric, Projection, ViewId } from '../types'
 import { METRICS, VIEWS } from '../views'
+import { Legend } from './Legend'
 
 type Props = {
   data: Dataset
@@ -18,11 +18,21 @@ type Props = {
   showCities: boolean
   onShowCities: (v: boolean) => void
   onSelectCountry: (id: string) => void
-  scale: Scale
-  legendTitle: string
+  onStudy: () => void
+  studying: boolean
+  scale: Scale | null
+  legendScope: string
+  legendNote?: string
+  hoverValue: number | null
 }
 
 const NARROW_QUERY = '(max-width: 899px)'
+
+const PROJECTIONS: { id: Projection; label: string; hint: string }[] = [
+  { id: 'globe', label: 'Globo', hint: 'Il globo: forme e aree reali' },
+  { id: 'equal-earth', label: 'Piana', hint: 'Equal Earth: le aree degli Stati sono proporzionali a quelle reali' },
+  { id: 'mercator', label: 'Mercatore', hint: 'Mercatore: forme fedeli, ma ingrandisce le terre vicino ai poli' },
+]
 
 /** Map options start collapsed on phones so the map stays visible; they are always open on wider screens. */
 function useOptionsOpen() {
@@ -34,38 +44,6 @@ function useOptionsOpen() {
     return () => mql.removeEventListener('change', onChange)
   }, [])
   return [open, setOpen] as const
-}
-
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: T
-  options: { id: T; label: string }[]
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="field">
-      <span className="field-label">{label}</span>
-      <div className={`segmented${options.length > 3 ? ' segmented-grid' : ''}`} role="radiogroup" aria-label={label}>
-        {options.map((o) => (
-          <button
-            key={o.id}
-            type="button"
-            role="radio"
-            aria-checked={value === o.id}
-            className={value === o.id ? 'active' : ''}
-            onClick={() => onChange(o.id)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => void }) {
@@ -91,11 +69,16 @@ function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => v
   return (
     <form
       className="search"
+      role="search"
       onSubmit={(e) => {
         e.preventDefault()
         submit(query)
       }}
     >
+      <svg viewBox="0 0 20 20" aria-hidden className="search-icon">
+        <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <path d="m13 13 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
       <input
         type="search"
         list="country-list"
@@ -117,48 +100,13 @@ function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => v
   )
 }
 
-function Legend({ scale, metric, title }: { scale: Scale; metric: Metric; title: string }) {
-  if (metric === 'none' || !scale.colors.length) return null
-  const unit = METRICS.find((m) => m.id === metric)!
-  const { breaks, colors } = scale
-  const labelFor = (i: number) => {
-    if (breaks.length === 0) return 'tutti'
-    if (i === 0) return `< ${formatCompact(breaks[0])}`
-    if (i === colors.length - 1) return `≥ ${formatCompact(breaks[i - 1])}`
-    return `${formatCompact(breaks[i - 1])} – ${formatCompact(breaks[i])}`
-  }
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <div className="legend">
-      <div className="legend-title">
-        {unit.label} <span className="muted">({unit.unit})</span>
-        <span className="legend-scope">{title} · quantili</span>
-      </div>
-      {/* Compact single-row ramp, shown instead of the list on narrow screens. */}
-      <div className="legend-compact">
-        <div className="legend-ramp">
-          {colors.map((c) => (
-            <span key={c} style={{ background: c }} />
-          ))}
-          <span className="swatch-nodata" title="dato non disponibile" />
-        </div>
-        <div className="legend-ends">
-          <span>{labelFor(0)}</span>
-          {colors.length > 1 && <span>{labelFor(colors.length - 1)}</span>}
-        </div>
-      </div>
-      <ul>
-        {colors.map((c, i) => (
-          <li key={c}>
-            <span className="swatch" style={{ background: c }} />
-            {labelFor(i)}
-          </li>
-        ))}
-        <li>
-          <span className="swatch swatch-nodata" />
-          dato non disponibile
-        </li>
-      </ul>
-    </div>
+    <label className="switch">
+      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span className="switch-track" aria-hidden />
+      {label}
+    </label>
   )
 }
 
@@ -167,26 +115,42 @@ export function Controls(props: Props) {
   const [optionsOpen, setOptionsOpen] = useOptionsOpen()
   return (
     <aside className="card controls" aria-label="Controlli">
-      <header>
-        <h1>Geo Capital Dashboard</h1>
-        <p className="muted">Stati, capitali, regioni e città del mondo</p>
+      <header className="brand">
+        <div>
+          <h1>Atlante</h1>
+          <p>Stati, capitali e città del mondo</p>
+        </div>
+        <button
+          type="button"
+          className={`study-button${props.studying ? ' active' : ''}`}
+          onClick={props.onStudy}
+          aria-pressed={props.studying}
+        >
+          <svg viewBox="0 0 20 20" aria-hidden>
+            <path
+              d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Zm3 2v4c0 1.4 1.8 2.5 4 2.5s4-1.1 4-2.5v-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Studia
+        </button>
       </header>
       <Search data={data} onSelect={props.onSelectCountry} />
-      <details
-        className="controls-body"
-        open={optionsOpen}
-        onToggle={(e) => setOptionsOpen(e.currentTarget.open)}
-      >
+      <details className="controls-body" open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)}>
         <summary>Opzioni mappa</summary>
         <div className="field">
           <span className="field-label">Vista</span>
-          <div className="view-grid">
+          <div className="chips" role="radiogroup" aria-label="Vista">
             {VIEWS.map((v) => (
               <button
                 key={v.id}
                 type="button"
-                className={viewId === v.id ? 'active' : ''}
-                aria-pressed={viewId === v.id}
+                role="radio"
+                className={`chip${viewId === v.id ? ' active' : ''}`}
+                aria-checked={viewId === v.id}
                 onClick={() => {
                   onView(v.id)
                   // On phones, get the options out of the way so the new view is visible.
@@ -198,33 +162,63 @@ export function Controls(props: Props) {
             ))}
           </div>
         </div>
-        <Segmented label="Colora per" value={metric} options={METRICS} onChange={onMetric} />
-        <Segmented
-          label="Proiezione"
-          value={projection}
-          options={[
-            { id: 'globe', label: 'Globo' },
-            { id: 'mercator', label: 'Piana' },
-          ]}
-          onChange={onProjection}
-        />
+        <div className="field">
+          <span className="field-label">Colora per</span>
+          <div className="metric-grid" role="radiogroup" aria-label="Colora per">
+            {METRICS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={metric === m.id}
+                className={`metric${metric === m.id ? ' active' : ''}`}
+                onClick={() => onMetric(m.id)}
+              >
+                <span
+                  className="metric-swatch"
+                  style={{ background: m.id === 'none' ? undefined : rampGradient(RAMPS[m.id]) }}
+                  aria-hidden
+                />
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <span className="field-label">Proiezione</span>
+          <div className="segmented" role="radiogroup" aria-label="Proiezione">
+            {PROJECTIONS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                title={p.hint}
+                aria-checked={projection === p.id}
+                className={projection === p.id ? 'active' : ''}
+                onClick={() => onProjection(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="field toggles">
-          <label>
-            <input type="checkbox" checked={props.showCapitals} onChange={(e) => props.onShowCapitals(e.target.checked)} />
-            Capitali e capoluoghi
-          </label>
-          <label>
-            <input type="checkbox" checked={props.showCities} onChange={(e) => props.onShowCities(e.target.checked)} />
-            Città principali
-          </label>
+          <Switch checked={props.showCapitals} onChange={props.onShowCapitals} label="Capitali e capoluoghi" />
+          <Switch checked={props.showCities} onChange={props.onShowCities} label="Città principali" />
         </div>
       </details>
-      <Legend scale={props.scale} metric={metric} title={props.legendTitle} />
+      <Legend
+        scale={props.scale}
+        metric={metric}
+        scope={props.legendScope}
+        hoverValue={props.hoverValue}
+        note={props.legendNote}
+      />
       <footer className="sources">
-        Dati aggiornati al {new Date(data.meta.generatedAt).toLocaleDateString('it-IT')} ·{' '}
+        Dati al {new Date(data.meta.generatedAt).toLocaleDateString('it-IT')} ·{' '}
         {data.meta.sources.map((s, i) => (
           <span key={s.name}>
-            {i > 0 && ', '}
+            {i > 0 && ' · '}
             <a href={s.url} target="_blank" rel="noreferrer" title={`${s.usedFor} — ${s.license}`}>
               {s.name.split(' (')[0]}
             </a>
