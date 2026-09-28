@@ -12,6 +12,7 @@ type Props = {
   focusIds: Set<string>
   selectedId: string | null
   regions: FeatureCollection<Geometry, Region> | null
+  regionsFailed: boolean
   onSelect: (id: string | null) => void
 }
 
@@ -88,7 +89,7 @@ function nearKm(a: CityRow, b: CityRow): number {
   return Math.hypot(dx, a.lat - b.lat) * 111
 }
 
-function CountryDetail({ data, metric, regions, onSelect, country }: Props & { country: Country }) {
+function CountryDetail({ data, metric, regions, regionsFailed, onSelect, country }: Props & { country: Country }) {
   const density = metricValue(country, 'density')
   const regionList = useMemo(() => {
     const list = regions?.features.map((f) => f.properties) ?? []
@@ -143,15 +144,16 @@ function CountryDetail({ data, metric, regions, onSelect, country }: Props & { c
           <h3>
             Regioni e suddivisioni <span className="muted">({regionList.length || country.admin1Count})</span>
           </h3>
-          {!regions ? (
+          {regionsFailed ? (
+            <p className="muted">Regioni non disponibili.</p>
+          ) : !regions ? (
             <p className="muted">Caricamento…</p>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Capoluogo</th>
+                    <th scope="col">Regione · capoluogo</th>
                     <th scope="col" className="num">Abitanti</th>
                     <th scope="col" className="num">km²</th>
                   </tr>
@@ -159,8 +161,10 @@ function CountryDetail({ data, metric, regions, onSelect, country }: Props & { c
                 <tbody>
                   {regionList.map((r) => (
                     <tr key={r.id}>
-                      <td title={r.type}>{r.name}</td>
-                      <td>{r.capName ?? '—'}</td>
+                      <td title={r.type}>
+                        {r.name}
+                        {r.capName && <span className="cell-sub">{r.capName}</span>}
+                      </td>
                       <td className="num" title={r.populationYear ? `dato ${r.populationYear}` : undefined}>
                         {formatCompact(r.population)}
                       </td>

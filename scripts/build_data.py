@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import io
 import json
 import math
 import re
@@ -39,6 +40,7 @@ USER_AGENT = "geo-capital-dashboard/0.1 (static data build; https://github.com/G
 NE_ADMIN0 = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_countries.zip"
 NE_ADMIN1 = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 GEONAMES_CITIES = "https://download.geonames.org/export/dump/cities5000.zip"
+GEONAMES_ALT_NAMES = "https://download.geonames.org/export/dump/alternateNamesV2.zip"  # ~200 MB, cached
 WORLD_BANK = "https://api.worldbank.org/v2/country/all/indicator/{indicator}?format=json&mrnev=1&per_page=1000"
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 FONT_URL = "https://tiles.openfreemap.org/fonts/{font}/{start}-{end}.pbf"
@@ -46,7 +48,18 @@ FONTS = ["Noto Sans Regular", "Noto Sans Bold"]
 FONT_RANGES = range(0, 33)  # 0-8447: Latin, Greek, Cyrillic, Latin Extended Additional, punctuation
 
 CITIES_PER_COUNTRY = 20
+CITY_CANDIDATES = CITIES_PER_COUNTRY * 3  # GeoNames candidates per country before de-duplication
 CAPITAL_DEDUP_KM = 7.0
+# Greedy suppression in population order: a city within CITY_MERGE_KM of a more populous kept one is the same
+# urban core (Brooklyn/Manhattan vs New York, Paris arrondissements, Pudong). 10 km keeps Kawasaki (11.5 km from
+# Yokohama), Sakai (12.5 km from Osaka) and the Ruhr cities (Essen-Bochum 14 km).
+CITY_MERGE_KM = 10.0
+# Farther parts of the same city (Queens 15 km, the Bronx 19 km from New York) are caught through Wikidata:
+# dropped when located in (P131) a kept city within this distance.
+CITY_PART_OF_KM = 25.0
+CAPITAL_POP_KM = 10.0  # GeoNames fallback for capitals without a Wikidata population
+# Natural Earth leaves ISO_A3_EH at -99 for these; the World Bank uses a user-assigned code.
+WORLD_BANK_ALIASES = {"KOS": "XKX"}
 EXCLUDED_FEATURE_CODES = {"PPLX", "PPLH", "PPLQ", "PPLW", "PPLCH", "PPLR"}
 
 # Natural Earth models these countries with provinces/departments/municipalities:
@@ -188,14 +201,39 @@ def parse_point(wkt: str) -> tuple[float, float] | None:
 
 
 def wikidata_resolve(prop: str, codes: list[str]) -> dict[str, str]:
-    """Map external identifiers (e.g. P300 ISO 3166-2, P1566 GeoNames ID) to Wikidata items."""
-    out: dict[str, str] = {}
-    for i in range(0, len(codes), 200):
-        values = " ".join(f'"{c}"' for c in codes[i : i + 200])
+    """Map external identifiers (e.g. P300 ISO 3166-2, P1566 GeoNames ID) to Wikidata items (cached per code)."""
+    cache_file = CACHE / f"wikidata_resolve_{prop}.json"
+    cached = json.loads(cache_file.read_text()) if cache_file.exists() else {"_codes": [], "map": {}}
+    known = set(cached["_codes"])
+    todo = [c for c in codes if c not in known]
+    for i in range(0, len(todo), 200):
+        values = " ".join(f'"{c}"' for c in todo[i : i + 200])
         rows = sparql(f"SELECT ?code ?item WHERE {{ VALUES ?code {{ {values} }} ?item wdt:{prop} ?code . }}")
         for r in rows:
-            out.setdefault(r["code"]["value"], qid(r["item"]["value"]))
-    return out
+            cached["map"].setdefault(r["code"]["value"], qid(r["item"]["value"]))
+    if todo:
+        cached["_codes"] = sorted(known | set(todo))
+        write_json(cache_file, cached)
+    return {c: cached["map"][c] for c in codes if c in cached["map"]}
+
+
+def wikidata_parents(qids: list[str]) -> dict[str, list[str]]:
+    """Direct P131 ("located in the administrative territorial entity") of each item (cached per item)."""
+    cache_file = CACHE / "wikidata_p131.json"
+    cached = json.loads(cache_file.read_text()) if cache_file.exists() else {}
+    todo = [q for q in qids if q not in cached]
+    for i in range(0, len(todo), 300):
+        chunk = todo[i : i + 300]
+        values = " ".join(f"wd:{q}" for q in chunk)
+        rows = sparql(f"SELECT ?item ?parent WHERE {{ VALUES ?item {{ {values} }} ?item wdt:P131 ?parent . }}")
+        for q in chunk:
+            cached.setdefault(q, [])
+        for r in rows:
+            cached[qid(r["item"]["value"])].append(qid(r["parent"]["value"]))
+    if todo:
+        log(f"wikidata P131: {len(todo)} items queried")
+        write_json(cache_file, cached)
+    return {q: cached.get(q, []) for q in qids}
 
 
 def wikidata_stats(qids: list[str], label: str) -> dict[str, dict]:
@@ -302,40 +340,90 @@ def polygon_parts(geometry: dict) -> list[list]:
     return []
 
 
-def ring_area(ring: list) -> float:
-    """Planar shoelace area in degrees², good enough to rank polygon parts."""
-    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:]))) / 2
+def geodesic_ring_km2(coords: list) -> float:
+    """Spherical area of one ring (Chamberlain & Duquette)."""
+    total = 0.0
+    for (x1, y1), (x2, y2) in zip(coords, coords[1:]):
+        total += math.radians(x2 - x1) * (2 + math.sin(math.radians(y1)) + math.sin(math.radians(y2)))
+    return abs(total) * 6371.0088**2 / 2
+
+
+def geodesic_part_km2(part: list) -> float:
+    """Area of one polygon part: outer ring minus holes."""
+    return geodesic_ring_km2(part[0]) - sum(geodesic_ring_km2(h) for h in part[1:])
 
 
 def geodesic_area_km2(geometry: dict) -> float:
-    """Spherical polygon area (Chamberlain & Duquette), outer rings minus holes."""
-
-    def ring(coords: list) -> float:
-        total = 0.0
-        for (x1, y1), (x2, y2) in zip(coords, coords[1:]):
-            total += math.radians(x2 - x1) * (2 + math.sin(math.radians(y1)) + math.sin(math.radians(y2)))
-        return abs(total) * 6371.0088**2 / 2
-
-    return sum(ring(p[0]) - sum(ring(h) for h in p[1:]) for p in polygon_parts(geometry))
+    """Spherical polygon area, outer rings minus holes."""
+    return sum(geodesic_part_km2(p) for p in polygon_parts(geometry))
 
 
-def focus_bbox(geometry: dict) -> list[float]:
-    """Bounding box of the main land mass (+ parts >= 15% of it), antimeridian aware."""
+Extent = tuple[float, float, float, float, float, float]  # west, east, shifted west, shifted east, south, north
+
+
+def ring_extent(ring: list) -> Extent:
+    """Longitude range both as-is and shifted to 0..360 (for antimeridian crossings), plus latitude range."""
+    lons = [x for x, _ in ring]
+    lats = [y for _, y in ring]
+    shifted = [x + 360 if x < 0 else x for x in lons]
+    return (min(lons), max(lons), min(shifted), max(shifted), min(lats), max(lats))
+
+
+def merge_extent(a: Extent, b: Extent) -> Extent:
+    return (min(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), max(a[3], b[3]), min(a[4], b[4]), max(a[5], b[5]))
+
+
+def extent_bbox(e: Extent) -> list[float]:
+    """[west, south, east, north]; takes the narrower of the plain and antimeridian-shifted longitude spans."""
+    west, east = e[0], e[1]
+    if e[3] - e[2] < east - west:  # crossing the antimeridian (Russia, Fiji, Kiribati…)
+        west, east = e[2], e[3]
+        if west > 180:
+            west, east = west - 360, east - 360
+    return [west, e[4], east, e[5]]
+
+
+def bbox_area_deg2(bbox: list[float]) -> float:
+    return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+
+
+FOCUS_MIN_PART = 0.01  # parts smaller than 1% of the largest never widen the frame
+FOCUS_MAJOR_PART = 0.30  # parts >= 30% of the largest are always framed (North Island, Hokkaido, Sumatra…)
+FOCUS_MAX_GROWTH = 1.35  # other parts only if they grow the bbox area by <= 35%
+FOCUS_ANCHOR_KM = 30.0  # the part holding the capital is always framed (Tarawa for Kiribati)
+
+
+def focus_bbox(geometry: dict, anchor: tuple[float, float] | None = None) -> list[float]:
+    """Bounding box used to frame a country: the main land mass plus the parts that fit without blowing it up.
+
+    Greedy over parts sorted by geodesic area: start from the largest part, the major parts and the part
+    closest to `anchor` (the capital); then add each further part only if the bbox grows by <= 35%.
+    Keeps Sicily/Sardinia or Corsica, drops Alaska/Hawaii, Guyane, Svalbard.
+    """
     parts = polygon_parts(geometry)
     if not parts:
         return [-180, -85, 180, 85]
-    sized = [(ring_area(p[0]), p[0]) for p in parts]
-    largest = max(a for a, _ in sized)
-    rings = [r for a, r in sized if a >= largest * 0.15]
-    lons = [x for r in rings for x, _ in r]
-    lats = [y for r in rings for _, y in r]
-    west, east = min(lons), max(lons)
-    shifted = [x + 360 if x < 0 else x for x in lons]
-    if max(shifted) - min(shifted) < east - west:  # crossing the antimeridian (Russia, Fiji…)
-        west, east = min(shifted), max(shifted)
-        if west > 180:
-            west, east = west - 360, east - 360
-    return [round(west, 3), round(min(lats), 3), round(east, 3), round(max(lats), 3)]
+    sized = sorted(((geodesic_part_km2(p), p[0]) for p in parts), key=lambda t: -t[0])
+    largest = sized[0][0]
+    framed = {0} | {i for i, (area, _) in enumerate(sized) if area >= largest * FOCUS_MAJOR_PART}
+    if anchor:
+        dist, idx = min(
+            (min(haversine_km(anchor[0], anchor[1], y, x) for x, y in ring), i) for i, (_, ring) in enumerate(sized)
+        )
+        if dist <= FOCUS_ANCHOR_KM:
+            framed.add(idx)
+    extent = ring_extent(sized[0][1])
+    for i in framed:
+        extent = merge_extent(extent, ring_extent(sized[i][1]))
+    for i, (area, ring) in enumerate(sized):
+        if area < largest * FOCUS_MIN_PART:
+            break
+        if i in framed:
+            continue
+        grown = merge_extent(extent, ring_extent(ring))
+        if bbox_area_deg2(extent_bbox(grown)) <= bbox_area_deg2(extent_bbox(extent)) * FOCUS_MAX_GROWTH:
+            extent = grown
+    return [round(v, 3) for v in extent_bbox(extent)]
 
 
 # --------------------------------------------------------------------------- build steps
@@ -390,7 +478,9 @@ def build_admin1_geometry(admin1_shp: Path) -> tuple[list[dict], dict[str, Path]
     return rows, files
 
 
-def build_admin1(rows: list[dict], files: dict[str, Path], countries: dict[str, dict]) -> dict[str, dict]:
+def build_admin1(
+    rows: list[dict], files: dict[str, Path], countries: dict[str, dict], cities_by_iso2: dict[str, list[dict]]
+) -> dict[str, dict]:
     """Attach stats to each admin-1 feature and write public/data/admin1/<ADM0>.json."""
     groups: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
@@ -433,11 +523,13 @@ def build_admin1(rows: list[dict], files: dict[str, Path], countries: dict[str, 
             population, year, area = s.get("population"), s.get("populationYear"), s.get("area")
             kind = clean_str(m.get("type_en"))
             iso = clean_str(m.get("iso_3166_2"))
-        country_area = (countries.get(adm0) or {}).get("area")
-        if area and country_area and area > country_area * 1.05:
+        country = countries.get(adm0) or {}
+        if area and country.get("area") and area > country["area"] * 1.05:
             area = None  # implausible Wikidata value (wrong unit or scope)
         caps = s.get("capitals") or []
-        cap = max(caps, key=lambda c: c["population"] or 0) if caps else None
+        cap = dict(max(caps, key=lambda c: c["population"] or 0)) if caps else None
+        if cap and cap["population"] is None:
+            cap["population"] = geonames_population(cap["lat"], cap["lon"], cities_by_iso2.get(country.get("iso2"), []))
         summary[key] = {
             "adm0": adm0,
             "name": name,
@@ -488,10 +580,96 @@ def load_cities() -> list[dict]:
     return cities
 
 
+ADMIN_SEAT_CODES = {"PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4"}
+
+
+def geonames_population(lat: float, lon: float, pool: list[dict]) -> int | None:
+    """Population of the GeoNames place standing for a capital: within 10 km, PPLC first, then seats, then closest."""
+    near = [(c, haversine_km(lat, lon, c["lat"], c["lon"])) for c in pool]
+    near = [(c["code"] != "PPLC", c["code"] not in ADMIN_SEAT_CODES, d, c) for c, d in near if d <= CAPITAL_POP_KM]
+    return min(near, key=lambda t: t[:3])[3]["population"] if near else None
+
+
+def suppress_nearby(
+    candidates: list[dict], anchors: list[dict], qids: dict[str, str], parents: dict[str, list[str]]
+) -> list[dict]:
+    """Greedy de-duplication of GeoNames candidates; returns the survivors sorted by population.
+
+    Candidates are visited by population, admin-1 seats (PPLA) first. One is dropped when it lies within
+    CITY_MERGE_KM of a kept city that is more populous or a seat (Guadalajara wins over the larger Zapopan), or
+    when Wikidata puts it inside (P131) a kept city within CITY_PART_OF_KM, or maps it to the same item.
+    Anchors (the capital and its GeoNames records) suppress but are not returned.
+    """
+    kept = list(anchors)
+    out: list[dict] = []
+    for c in sorted(candidates, key=lambda c: (c["code"] != "PPLA", -c["population"])):
+        q = qids.get(c.get("geonameid", ""))
+        dup = False
+        for k in kept:
+            d = haversine_km(c["lat"], c["lon"], k["lat"], k["lon"])
+            if d <= CITY_MERGE_KM and (c["population"] < (k["population"] or math.inf) or k.get("code") == "PPLA"):
+                dup = True
+            elif d <= CITY_PART_OF_KM and q:
+                kq = qids.get(k.get("geonameid", ""))
+                dup = bool(kq) and (kq == q or kq in parents.get(q, []))
+            if dup:
+                break
+        if not dup:
+            kept.append(c)
+            out.append(c)
+    return sorted(out, key=lambda c: -c["population"])
+
+
+def italian_names(geoname_ids: set[str]) -> dict[str, str]:
+    """Italian names from GeoNames alternate names, keyed by geonameid (exact, unlike Wikidata's P1566 links)."""
+    path = download(GEONAMES_ALT_NAMES, "alternateNamesV2.zip")
+    best: dict[str, tuple[int, str]] = {}
+    with zipfile.ZipFile(path) as zf, zf.open("alternateNamesV2.txt") as raw:
+        for line in io.TextIOWrapper(raw, encoding="utf-8"):
+            cols = line.rstrip("\n").split("\t")
+            if cols[2] != "it" or cols[1] not in geoname_ids:
+                continue
+            if cols[6] == "1" or cols[7] == "1":  # colloquial or historic
+                continue
+            name = cols[3]
+            if not name[:1].isupper() or name.lower().startswith("distretto"):  # "poona", "Distretto di Bornova"
+                continue
+            score = 2 * (cols[4] == "1") + (cols[5] == "1")  # preferred, then short
+            if cols[1] not in best or score > best[cols[1]][0]:
+                best[cols[1]] = (score, name)
+    log(f"geonames: {len(best)} Italian city names")
+    return {k: v[1] for k, v in best.items()}
+
+
+def iso_owners(entries: list[tuple[str, str, str]]) -> dict[str, str]:
+    """Map each ISO code to the one feature that owns it, from (ADM0_A3, code, ISO_A3_EH) triples.
+
+    Natural Earth gives dependencies their sovereign's code (Ashmore and Cartier Is. and Indian Ocean Ter. are
+    AUS/AU): the owner is the feature whose ADM0_A3 equals its ISO_A3_EH, otherwise the only feature with that
+    code (S. Sudan is SDS/SSD). Codes shared without a clear owner get none.
+    """
+    by_code: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for adm0, code, iso3 in entries:
+        if code:
+            by_code[code].append((adm0, iso3))
+    owners: dict[str, str] = {}
+    for code, members in by_code.items():
+        primary = [adm0 for adm0, iso3 in members if adm0 == iso3]
+        if len(primary) == 1:
+            owners[code] = primary[0]
+        elif len(members) == 1:
+            owners[code] = members[0][0]
+        else:
+            log(f"ISO code {code} shared by {[m[0] for m in members]} without an owner")
+    return owners
+
+
 def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict[str, dict]:
     population_wb = world_bank("SP.POP.TOTL")
     area_wb = world_bank("AG.SRF.TOTL.K2")
     wd = wikidata_stats(sorted({clean_str(f["properties"]["WIKIDATAID"]) for f in features} - {""}), "countries")
+    iso3s = [(f["properties"]["ADM0_A3"], clean_str(f["properties"]["ISO_A3_EH"])) for f in features]
+    iso3_owner = iso_owners([(adm0, iso3, iso3) for adm0, iso3 in iso3s])
 
     countries: dict[str, dict] = {}
     for feat in features:
@@ -499,22 +677,26 @@ def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict
         cid = p["ADM0_A3"]
         iso2, iso3 = clean_str(p["ISO_A2_EH"]), clean_str(p["ISO_A3_EH"])
         w = wd.get(clean_str(p["WIKIDATAID"]), {})
+        # World Bank rows are joined by ISO3: only the feature owning the code gets them (not its dependencies).
+        wb_code = iso3 if iso3_owner.get(iso3) == cid else WORLD_BANK_ALIASES.get(cid, "")
 
         population, pop_year, pop_source = None, None, None
-        if iso3 in population_wb:
-            (population, pop_year), pop_source = population_wb[iso3], "World Bank"
-        elif w.get("population"):
+        if wb_code in population_wb:
+            (population, pop_year), pop_source = population_wb[wb_code], "World Bank"
+        elif w.get("population") is not None:  # 0 is real for uninhabited territories
             population, pop_year, pop_source = w["population"], w.get("populationYear"), "Wikidata"
 
         # World Bank first; Wikidata only when consistent with the boundary's own geodesic area.
         measured = geodesic_area_km2(feat["geometry"])
-        if iso3 in area_wb:
-            area, area_source = area_wb[iso3][0], "World Bank"
+        if wb_code in area_wb:
+            area, area_source = area_wb[wb_code][0], "World Bank"
         elif w.get("area") and 0.6 < w["area"] / max(measured, 1e-9) < 1.6:
             area, area_source = w["area"], "Wikidata"
         else:
             area, area_source = measured, "Natural Earth (calcolata)"
 
+        capitals = sorted(w.get("capitals") or [], key=lambda c: -(c["population"] or 0))
+        anchor = (capitals[0]["lat"], capitals[0]["lon"]) if capitals else None
         countries[cid] = {
             "id": cid,
             "name": clean_str(p["NAME_IT"]) or p["NAME"],
@@ -524,64 +706,89 @@ def build_countries(features: list[dict], admin1_files: dict[str, Path]) -> dict
             "continent": p["CONTINENT"],
             "subregion": p["SUBREGION"],
             "type": p["TYPE"],
-            "population": int(population) if population else None,
+            "population": int(population) if population is not None else None,
             "populationYear": pop_year,
             "populationSource": pop_source,
             "area": round(area, 1) if area else None,
             "areaSource": area_source,
-            "capitals": sorted(w.get("capitals") or [], key=lambda c: -(c["population"] or 0)),
-            "bbox": focus_bbox(feat["geometry"]),
+            "capitals": capitals,
+            "bbox": focus_bbox(feat["geometry"], anchor),
             "admin1Count": 0,
         }
     missing = sorted(set(admin1_files) - set(countries))
     if missing:
         log(f"admin-1 files without a matching country: {missing}")
-    log(f"missing population: {[c for c, v in countries.items() if not v['population']]}")
+    log(f"missing population: {[c for c, v in countries.items() if v['population'] is None]}")
     return countries
 
 
-def build_cities(countries: dict[str, dict], admin1_summary: dict[str, dict]) -> None:
+def build_cities(
+    countries: dict[str, dict], admin1_summary: dict[str, dict], cities_by_iso2: dict[str, list[dict]]
+) -> None:
     """Pick the major cities of each country, enrich them from Wikidata, write countries/cities JSON."""
-    cities_by_iso2: dict[str, list[dict]] = defaultdict(list)
-    for c in load_cities():
-        cities_by_iso2[c["iso2"]].append(c)
     admin1_by_country: dict[str, list[dict]] = defaultdict(list)
     for s in admin1_summary.values():
         admin1_by_country[s["adm0"]].append(s)
+    # GeoNames cities are keyed by ISO2, which dependencies share with their sovereign (AU for Ashmore and
+    # Cartier Is.): only the feature owning the code gets them.
+    iso2_owner = iso_owners([(c["id"], c["iso2"] or "", c["iso3"] or "") for c in countries.values()])
 
-    selected: dict[str, list[dict]] = {}
+    anchors: dict[str, list[dict]] = {}
+    candidates: dict[str, list[dict]] = {}
     for cid, country in countries.items():
         country["admin1Count"] = len(admin1_by_country.get(cid, []))
         iso2 = country["iso2"]
-        own = sorted(cities_by_iso2.get(iso2, []), key=lambda c: -c["population"]) if iso2 else []
+        own = cities_by_iso2.get(iso2, []) if iso2 and iso2_owner.get(iso2) == cid else []
+        own = sorted(own, key=lambda c: -c["population"])
         if not country["capitals"]:
             country["capitals"] = [
                 {"name": c["name"], "lat": c["lat"], "lon": c["lon"], "population": c["population"]}
                 for c in own
                 if c["code"] == "PPLC"
             ][:1]
-        # National capitals live in countries.json; drop their GeoNames duplicates.
-        anchors = [(c["lat"], c["lon"]) for c in country["capitals"]]
-        major = [
+        for cap in country["capitals"]:
+            if cap["population"] is None:
+                cap["population"] = geonames_population(cap["lat"], cap["lon"], cities_by_iso2.get(iso2, []))
+        country["capitals"].sort(key=lambda c: -(c["population"] or 0))
+        # National capitals live in countries.json; their GeoNames duplicates only suppress their neighbours.
+        caps = country["capitals"]
+        dupes = [
             c
             for c in own
-            if c["code"] != "PPLC"
-            and all(haversine_km(c["lat"], c["lon"], la, lo) > CAPITAL_DEDUP_KM for la, lo in anchors)
-        ][:CITIES_PER_COUNTRY]
-        if major:
-            selected[cid] = major
+            if c["code"] == "PPLC"
+            or any(haversine_km(c["lat"], c["lon"], k["lat"], k["lon"]) <= CAPITAL_DEDUP_KM for k in caps)
+        ]
+        anchors[cid] = caps + dupes
+        candidates[cid] = [c for c in own if c not in dupes][:CITY_CANDIDATES]
+
+    # Wikidata "located in" (P131) tells boroughs and wards (Queens, the Bronx, Ōta) from neighbouring cities.
+    groups = [*anchors.values(), *candidates.values()]
+    ids = sorted({c["geonameid"] for group in groups for c in group if "geonameid" in c})
+    gn_to_qid = wikidata_resolve("P1566", ids)
+    parents = wikidata_parents(sorted(set(gn_to_qid.values())))
+    selected: dict[str, list[dict]] = {}
+    dropped = 0
+    for cid, cands in candidates.items():
+        survivors = suppress_nearby(cands, anchors[cid], gn_to_qid, parents)
+        dropped += len(cands) - len(survivors)
+        if survivors:
+            selected[cid] = survivors[:CITIES_PER_COUNTRY]
+    log(f"cities: {dropped} of {sum(map(len, candidates.values()))} GeoNames candidates merged into a nearby city")
 
     # GeoNames gives undated populations and English names: prefer Wikidata's dated figure and Italian label.
     ids = sorted({c["geonameid"] for major in selected.values() for c in major})
-    gn_to_qid = wikidata_resolve("P1566", ids)
-    wd = wikidata_stats(sorted(set(gn_to_qid.values())), "cities")
+    wd = wikidata_stats(sorted({gn_to_qid[i] for i in ids if i in gn_to_qid}), "cities")
+    it_names = italian_names(set(ids))
     enriched = 0
     cities_out: dict[str, list] = {}
     for cid, major in selected.items():
         rows = []
         for c in major:
             w = wd.get(gn_to_qid.get(c["geonameid"], ""), {})
-            name, population = w.get("label") or c["name"], c["population"]
+            # GeoNames "it" names are exact per place (a few are old exonyms, e.g. "Iconio"); Wikidata's
+            # P1566 link often points at the district, whose label is wrong for the city ("Chongqing Shi").
+            name = it_names.get(c["geonameid"]) or w.get("label") or c["name"]
+            population = c["population"]
             if w.get("population") and (w.get("populationYear") or 0) >= 2010:
                 population = w["population"]
                 enriched += 1
@@ -619,8 +826,9 @@ def write_meta() -> None:
             "sources": [
                 {"name": "World Bank WDI (SP.POP.TOTL, AG.SRF.TOTL.K2)", "url": "https://data.worldbank.org", "license": "CC BY 4.0", "usedFor": "Popolazione e superficie degli Stati"},
                 {"name": "Wikidata", "url": "https://www.wikidata.org", "license": "CC0", "usedFor": "Capitali, regioni (popolazione, superficie, capoluogo)"},
-                {"name": "GeoNames cities5000", "url": "https://www.geonames.org", "license": "CC BY 4.0", "usedFor": "Città principali e popolazione"},
+                {"name": "GeoNames (cities5000, alternateNames)", "url": "https://www.geonames.org", "license": "CC BY 4.0", "usedFor": "Città principali, popolazione e nomi italiani"},
                 {"name": "Natural Earth", "url": "https://www.naturalearthdata.com", "license": "Public domain", "usedFor": "Confini di Stati e regioni"},
+                {"name": "Noto Sans (glifi OpenFreeMap)", "url": "https://openfreemap.org", "license": "SIL OFL 1.1", "usedFor": "Font delle etichette sulla mappa"},
             ],
         },
     )  # fmt: skip
@@ -636,9 +844,12 @@ def main() -> None:
 
     countries_features = build_countries_geometry(admin0_dir / "ne_50m_admin_0_countries.shp")
     rows, files = build_admin1_geometry(admin1_dir / "ne_10m_admin_1_states_provinces.shp")
+    cities_by_iso2: dict[str, list[dict]] = defaultdict(list)
+    for c in load_cities():
+        cities_by_iso2[c["iso2"]].append(c)
     countries = build_countries(countries_features, files)
-    summary = build_admin1(rows, files, countries)
-    build_cities(countries, summary)
+    summary = build_admin1(rows, files, countries, cities_by_iso2)
+    build_cities(countries, summary, cities_by_iso2)
     download_fonts()
     write_meta()
     log("done")

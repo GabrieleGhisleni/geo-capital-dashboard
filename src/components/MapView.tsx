@@ -154,7 +154,7 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
     'text-offset': [0, 0.9],
     'text-anchor': 'top',
     'text-max-width': 8,
-    'symbol-sort-key': ['-', 0, ['get', 'population']],
+    'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'population'], 0]],
   }
 
   return {
@@ -289,7 +289,13 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         id: L.regionCapLabel,
         type: 'symbol',
         source: 'regionCapitals',
-        layout: { ...label, 'text-field': ['get', 'capName'], 'text-font': ['Noto Sans Bold'], 'text-size': 11 },
+        layout: {
+          ...label,
+          'text-field': ['get', 'capName'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 11,
+          'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'capPop'], ['get', 'population'], 0]],
+        },
         paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.4 },
       },
       {
@@ -371,7 +377,10 @@ export function MapView(props: Props) {
   const mapRef = useRef<MapLibre | null>(null)
   const readyRef = useRef(false)
   const latest = useRef(props)
-  latest.current = props
+  // Declared first so every effect below (and map event handlers) sees the current props.
+  useEffect(() => {
+    latest.current = props
+  })
   const hovered = useRef<{ source: string; id: string | number } | null>(null)
 
   // Create the map once.
@@ -454,7 +463,9 @@ export function MapView(props: Props) {
 
   useEffect(() => {
     const map = mapRef.current
-    if (map && readyRef.current) map.setProjection({ type: projection })
+    if (!map || !readyRef.current) return
+    map.setProjection({ type: projection })
+    moveCamera(map, latest.current, true)
   }, [projection])
 
   useEffect(() => {
@@ -517,7 +528,18 @@ function syncAll(map: MapLibre, props: Props) {
       ),
     )
 
-  const countryFilter: ExpressionSpecification = ['==', ['get', 'countryId'], selectedId ?? '']
+  // Regional capitals already have their own marker: skip the same city in the cities layer.
+  const capPoints = (regions?.features ?? []).flatMap((f) =>
+    f.properties.capLat != null && f.properties.capLon != null ? [[f.properties.capLat, f.properties.capLon]] : [],
+  )
+  const shadowed = (selectedId ? data.citiesByCountry[selectedId] ?? [] : [])
+    .filter((c) => capPoints.some(([lat, lon]) => Math.hypot((c.lon - lon) * Math.cos((lat * Math.PI) / 180), c.lat - lat) * 111 < 7))
+    .map((c) => c.name)
+  const countryFilter: ExpressionSpecification = [
+    'all',
+    ['==', ['get', 'countryId'], selectedId ?? ''],
+    ['!', ['in', ['get', 'name'], ['literal', shadowed]]],
+  ]
   map.setFilter(L.citiesDot, countryFilter)
   map.setFilter(L.citiesLabel, countryFilter)
   map.setFilter(L.citiesAllDot, ['!=', ['get', 'countryId'], selectedId ?? ''])
@@ -530,21 +552,23 @@ function syncAll(map: MapLibre, props: Props) {
     map.setLayoutProperty(id, 'visibility', vis(props.showCities))
 }
 
+// cameraForBounds sizes bounds as if on a flat map; on the globe the country's near face bulges
+// toward the viewer and ends up ~0.3–0.45 zoom levels too tight (QA: Brazil spilled under the panel).
+const GLOBE_FIT_CORRECTION = 0.4
+
 function moveCamera(map: MapLibre, props: Props, animate: boolean) {
-  const { selectedId, data, view, padding } = props
+  const { selectedId, data, view, padding, projection } = props
   const duration = animate ? 1200 : 0
-  // The side cards are applied as persistent map padding; fitBounds only adds a small margin on top.
+  // The side cards are applied as persistent map padding; the fit only adds a small margin on top.
   map.setPadding(padding)
-  const margin = 24
-  if (selectedId && data.countries[selectedId]) {
-    const [w, s, e, n] = data.countries[selectedId].bbox
-    map.fitBounds([[w, s], [e, n]] as LngLatBoundsLike, { padding: margin, duration, maxZoom: 7 })
+  const narrow = map.getContainer().clientWidth < 700
+  if (!selectedId && view.id === 'world') {
+    map.easeTo({ center: [12, 25], zoom: narrow ? 0.45 : 1.5, duration })
     return
   }
-  if (view.id === 'world') {
-    map.easeTo({ center: [12, 25], zoom: map.getContainer().clientWidth < 700 ? 0.9 : 1.5, duration })
-    return
-  }
-  const [w, s, e, n] = view.bounds
-  map.fitBounds([[w, s], [e, n]] as LngLatBoundsLike, { padding: margin, duration })
+  const [w, s, e, n] = selectedId && data.countries[selectedId] ? data.countries[selectedId].bbox : view.bounds
+  const camera = map.cameraForBounds([[w, s], [e, n]] as LngLatBoundsLike, { padding: 24, maxZoom: 7 })
+  if (!camera) return // the cards leave no room (transient while the viewport is resizing)
+  const zoom = (camera.zoom ?? map.getZoom()) - (projection === 'globe' ? GLOBE_FIT_CORRECTION : 0)
+  map.easeTo({ center: camera.center, zoom, duration })
 }

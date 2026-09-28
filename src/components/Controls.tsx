@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Scale } from '../App'
 import type { Dataset } from '../data'
 import { formatCompact } from '../scale'
@@ -20,6 +20,20 @@ type Props = {
   onSelectCountry: (id: string) => void
   scale: Scale
   legendTitle: string
+}
+
+const NARROW_QUERY = '(max-width: 899px)'
+
+/** Map options start collapsed on phones so the map stays visible; they are always open on wider screens. */
+function useOptionsOpen() {
+  const [open, setOpen] = useState(() => !window.matchMedia(NARROW_QUERY).matches)
+  useEffect(() => {
+    const mql = window.matchMedia(NARROW_QUERY)
+    const onChange = () => setOpen(!mql.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+  return [open, setOpen] as const
 }
 
 function Segmented<T extends string>({
@@ -119,6 +133,19 @@ function Legend({ scale, metric, title }: { scale: Scale; metric: Metric; title:
         {unit.label} <span className="muted">({unit.unit})</span>
         <span className="legend-scope">{title} · quantili</span>
       </div>
+      {/* Compact single-row ramp, shown instead of the list on narrow screens. */}
+      <div className="legend-compact">
+        <div className="legend-ramp">
+          {colors.map((c) => (
+            <span key={c} style={{ background: c }} />
+          ))}
+          <span className="swatch-nodata" title="dato non disponibile" />
+        </div>
+        <div className="legend-ends">
+          <span>{labelFor(0)}</span>
+          {colors.length > 1 && <span>{labelFor(colors.length - 1)}</span>}
+        </div>
+      </div>
       <ul>
         {colors.map((c, i) => (
           <li key={c}>
@@ -137,6 +164,7 @@ function Legend({ scale, metric, title }: { scale: Scale; metric: Metric; title:
 
 export function Controls(props: Props) {
   const { data, viewId, onView, metric, onMetric, projection, onProjection } = props
+  const [optionsOpen, setOptionsOpen] = useOptionsOpen()
   return (
     <aside className="card controls" aria-label="Controlli">
       <header>
@@ -144,7 +172,11 @@ export function Controls(props: Props) {
         <p className="muted">Stati, capitali, regioni e città del mondo</p>
       </header>
       <Search data={data} onSelect={props.onSelectCountry} />
-      <details className="controls-body" open>
+      <details
+        className="controls-body"
+        open={optionsOpen}
+        onToggle={(e) => setOptionsOpen(e.currentTarget.open)}
+      >
         <summary>Opzioni mappa</summary>
         <div className="field">
           <span className="field-label">Vista</span>
@@ -155,7 +187,11 @@ export function Controls(props: Props) {
                 type="button"
                 className={viewId === v.id ? 'active' : ''}
                 aria-pressed={viewId === v.id}
-                onClick={() => onView(v.id)}
+                onClick={() => {
+                  onView(v.id)
+                  // On phones, get the options out of the way so the new view is visible.
+                  if (window.matchMedia(NARROW_QUERY).matches) setOptionsOpen(false)
+                }}
               >
                 {v.label}
               </button>

@@ -91,7 +91,7 @@ function Body({ data, target }: { data: Dataset; target: HoverTarget }) {
 
 export function Tooltip({ data, hover }: Props) {
   const flipX = hover.x > window.innerWidth - 300
-  const flipY = hover.y > window.innerHeight - 220
+  const flipY = hover.y > window.innerHeight - 280
   const style = {
     left: flipX ? undefined : hover.x + 14,
     right: flipX ? window.innerWidth - hover.x + 14 : undefined,

@@ -37,16 +37,28 @@ function buildScale(
   return { scale: { breaks, colors }, classes }
 }
 
-function useIsNarrow() {
-  const q = '(max-width: 899px)'
-  const [narrow, setNarrow] = useState(() => window.matchMedia(q).matches)
+function useMedia(query: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
   useEffect(() => {
-    const mql = window.matchMedia(q)
-    const onChange = () => setNarrow(mql.matches)
+    const mql = window.matchMedia(query)
+    const onChange = () => setMatches(mql.matches)
     mql.addEventListener('change', onChange)
     return () => mql.removeEventListener('change', onChange)
-  }, [])
-  return narrow
+  }, [query])
+  return matches
+}
+
+/** Height of the floating controls card, which covers the top of the map on phones. */
+function useControlsHeight(enabled: boolean) {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    const el = document.querySelector('.controls')
+    if (!enabled || !el) return
+    const ro = new ResizeObserver(() => setHeight(Math.round(el.getBoundingClientRect().bottom)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [enabled])
+  return height
 }
 
 export default function App() {
@@ -58,27 +70,33 @@ export default function App() {
   const [showCapitals, setShowCapitals] = useState(true)
   const [showCities, setShowCities] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [regions, setRegions] = useState<FeatureCollection<Geometry, Region> | null>(null)
+  const [loadedRegions, setLoadedRegions] = useState<{
+    id: string
+    fc: FeatureCollection<Geometry, Region> | null
+  } | null>(null)
   const [hover, setHover] = useState<{ target: HoverTarget; x: number; y: number } | null>(null)
   const theme = useTheme()
-  const narrow = useIsNarrow()
+  const narrow = useMedia('(max-width: 899px)')
+  const compact = useMedia('(max-width: 1279px)')
 
   useEffect(() => {
     loadDataset().then(setData, (e: Error) => setError(e.message))
   }, [])
 
   useEffect(() => {
-    setRegions(null)
     if (!selectedId || !data?.countries[selectedId]?.admin1Count) return
     let cancelled = false
     loadRegions(selectedId).then(
-      (fc) => !cancelled && setRegions(fc),
-      () => !cancelled && setRegions(null),
+      (fc) => !cancelled && setLoadedRegions({ id: selectedId, fc }),
+      () => !cancelled && setLoadedRegions({ id: selectedId, fc: null }),
     )
     return () => {
       cancelled = true
     }
   }, [selectedId, data])
+  const regionsState = loadedRegions?.id === selectedId ? loadedRegions : null
+  const regions = regionsState?.fc ?? null
+  const regionsFailed = Boolean(regionsState && !regionsState.fc)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelectedId(null)
@@ -110,13 +128,14 @@ export default function App() {
     return buildScale(items, metric, () => true, ramp)
   }, [regions, metric, ramp])
 
-  const padding = useMemo<PaddingOptions>(
-    () =>
-      narrow
-        ? { top: 90, bottom: Math.round(window.innerHeight * 0.42), left: 16, right: 16 }
-        : { top: 40, bottom: 40, left: 340, right: 420 },
-    [narrow],
-  )
+  const controlsHeight = useControlsHeight(narrow && data !== null)
+  // Keep the camera framing inside the map area left visible by the floating cards (see index.css widths).
+  const padding = useMemo<PaddingOptions>(() => {
+    if (narrow) {
+      return { top: Math.max(controlsHeight, 90) + 12, bottom: Math.round(window.innerHeight * 0.42), left: 16, right: 16 }
+    }
+    return compact ? { top: 40, bottom: 40, left: 296, right: 356 } : { top: 40, bottom: 40, left: 340, right: 420 }
+  }, [narrow, compact, controlsHeight])
 
   const onHover = useCallback((target: HoverTarget | null, x: number, y: number) => {
     setHover(target ? { target, x, y } : null)
@@ -176,6 +195,7 @@ export default function App() {
         focusIds={focusIds}
         selectedId={selectedId}
         regions={regions}
+        regionsFailed={regionsFailed}
         onSelect={setSelectedId}
       />
       {hover && !narrow && <Tooltip data={data} hover={hover} />}

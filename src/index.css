@@ -10,8 +10,12 @@
   --accent-soft: #cde2fb;
   --bar: #6da7ec;
   --no-data: #c9c7c0;
+  --raised: #ffffff;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 8%);
   --radius: 14px;
+  /* Card widths; App.tsx map padding must match (card width + 16px inset + ~20px gap). */
+  --controls-w: 304px;
+  --panel-w: 384px;
 
   color-scheme: light;
   font-family:
@@ -36,6 +40,7 @@
     --accent-soft: #184f95;
     --bar: #3987e5;
     --no-data: #46463f;
+    --raised: #3a3a36;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 40%);
     color-scheme: dark;
   }
@@ -104,10 +109,16 @@ h3 {
   overscroll-behavior: contain;
 }
 
+.card,
+.table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+}
+
 .controls {
   top: 16px;
   left: 16px;
-  width: 304px;
+  width: var(--controls-w);
   max-height: calc(100dvh - 32px);
   padding: 16px;
   display: flex;
@@ -118,7 +129,7 @@ h3 {
 .panel {
   top: 16px;
   right: 16px;
-  width: 384px;
+  width: var(--panel-w);
   max-height: calc(100dvh - 32px);
   padding: 18px;
   display: flex;
@@ -237,7 +248,7 @@ h3 {
 }
 
 .segmented button.active {
-  background: var(--surface-1);
+  background: var(--raised);
   border-color: var(--border);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
@@ -308,6 +319,37 @@ button:focus-visible {
 
 .swatch-nodata {
   background: var(--no-data);
+}
+
+/* Single-row ramp used on narrow screens (see the media query below). */
+.legend-compact {
+  display: none;
+}
+
+.legend-ramp {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+
+.legend-ramp > span {
+  flex: 1;
+  border-radius: 2px;
+}
+
+.legend-ramp > .swatch-nodata {
+  flex: 0 0 14px;
+  margin-left: 6px;
+}
+
+.legend-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  margin-right: 20px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .sources {
@@ -386,7 +428,8 @@ button:focus-visible {
   font-size: 16px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  /* Break at spaces ("143,5 / Mln"), never inside a number. */
+  overflow-wrap: break-word;
 }
 
 .stat-note {
@@ -481,6 +524,13 @@ td {
   padding: 6px 8px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+}
+
+/* Long names (e.g. Petropavlovsk-Kamčatskij) wrap instead of pushing the numeric
+   columns out of view; min-width stops the text columns from collapsing to a few letters. */
+td:not(.num) {
+  min-width: 76px;
+  overflow-wrap: anywhere;
 }
 
 th {
@@ -593,6 +643,9 @@ tbody tr:last-child td {
 
 /* ---------------------------------------------------------------- maplibre */
 
+/* maplibre-gl.css is injected after this file (imported by MapView), so overrides are
+   scoped under .app to win on specificity rather than source order. */
+
 .maplibregl-ctrl-group {
   background: var(--surface-1) !important;
   border: 1px solid var(--border);
@@ -603,18 +656,75 @@ tbody tr:last-child td {
   border-top-color: var(--border) !important;
 }
 
+.app .maplibregl-ctrl-attrib,
+.app .maplibregl-ctrl-attrib.maplibregl-compact {
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.app .maplibregl-ctrl-attrib a {
+  color: var(--text-secondary);
+}
+
 @media (prefers-color-scheme: dark) {
-  .maplibregl-ctrl-icon {
+  .app .maplibregl-ctrl-icon,
+  .app .maplibregl-ctrl-attrib-button {
     filter: invert(1);
   }
+}
 
-  .maplibregl-ctrl-attrib {
-    background: rgb(26 26 25 / 80%) !important;
-    color: var(--text-secondary);
+/* Keep zoom buttons and attribution in the visible map area, left of the side panel. */
+@media (min-width: 900px) {
+  .app .maplibregl-ctrl-bottom-right {
+    right: calc(var(--panel-w) + 16px);
+  }
+}
+
+/* ---------------------------------------------------------------- medium screens */
+
+@media (min-width: 900px) and (max-width: 1279px) {
+  :root {
+    --controls-w: 260px;
+    --panel-w: 320px;
   }
 
-  .maplibregl-ctrl-attrib a {
-    color: var(--text-secondary);
+  .controls {
+    padding: 14px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .panel-header h2 {
+    font-size: 21px;
+  }
+
+  .stats {
+    gap: 6px;
+  }
+
+  /* Fits "143,5 Mln" (non-breaking space) on one line in a 320px panel. */
+  .stat {
+    padding: 8px 7px;
+  }
+
+  .stat-value {
+    font-size: 14px;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    padding: 6px 5px;
+  }
+
+  td:not(.num) {
+    min-width: 70px;
   }
 }
 
@@ -626,9 +736,16 @@ tbody tr:last-child td {
     left: 8px;
     right: 8px;
     width: auto;
-    max-height: 60dvh;
-    padding: 12px;
-    gap: 10px;
+    /* 8px inset + 8px gap above the bottom sheet (40dvh + 8px). */
+    max-height: calc(60dvh - 24px);
+    padding: 10px 12px;
+    gap: 8px;
+    /* When expanded, the options must stay above the bottom sheet. */
+    z-index: 3;
+  }
+
+  .controls h1 {
+    font-size: 15px;
   }
 
   .controls header p,
@@ -636,15 +753,56 @@ tbody tr:last-child td {
     display: none;
   }
 
+  .search input {
+    padding: 7px 10px;
+  }
+
+  /* Legend first, then the collapsible options. */
+  .controls .legend {
+    order: 1;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .controls-body {
+    order: 2;
+  }
+
   .controls-body > summary {
     display: list-item;
     cursor: pointer;
+    padding: 2px 0;
     font-size: 13px;
     color: var(--text-secondary);
   }
 
-  .legend {
+  .controls-body[open] > summary {
+    margin-bottom: 10px;
+  }
+
+  .legend-title {
+    margin-bottom: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .legend-scope {
+    display: inline;
+    font-size: inherit;
+  }
+
+  .legend-scope::before {
+    content: ' · ';
+  }
+
+  .legend ul {
     display: none;
+  }
+
+  .legend-compact {
+    display: block;
   }
 
   .panel {
@@ -655,9 +813,20 @@ tbody tr:last-child td {
     width: auto;
     max-height: 40dvh;
     padding: 14px;
+    gap: 12px;
   }
 
-  .maplibregl-ctrl-bottom-right {
+  .panel-header h2 {
+    font-size: 20px;
+  }
+
+  .app .maplibregl-ctrl-bottom-right {
     bottom: calc(40dvh + 12px);
   }
+}
+
+.cell-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
