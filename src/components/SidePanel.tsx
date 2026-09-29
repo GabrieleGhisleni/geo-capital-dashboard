@@ -21,6 +21,8 @@ type Props = {
   year: number | null
   yearValues: Record<string, number | null> | null
   now: Date
+  /** Why the regions are colored or not for the current metric (null = all regions colored). */
+  regionNote: string | null
 }
 
 export function SidePanel(props: Props) {
@@ -296,6 +298,11 @@ function CountryDetail(props: Props & { country: Country }) {
         )}
         <CapitalClock country={country} now={now} />
       </header>
+      {props.regionNote && (
+        <p className="map-note">
+          <span aria-hidden>ⓘ</span> {props.regionNote}
+        </p>
+      )}
       <div className="stats">
         <Stat label="Popolazione" value={formatCompact(country.population)} note={source(country.populationSource, country.populationYear)} title={formatNumber(country.population)} />
         <Stat label="Superficie" value={`${formatCompact(country.area)} km²`} note={country.areaSource} title={`${formatNumber(country.area)} km²`} />

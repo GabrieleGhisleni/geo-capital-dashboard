@@ -860,6 +860,22 @@ h3 {
   color: var(--text-secondary);
 }
 
+.map-note {
+  display: flex;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.map-note > span {
+  color: var(--accent);
+}
+
 .capital-clock {
   margin: 4px 0 0 20px;
   font-size: 12.5px;

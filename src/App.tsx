@@ -334,10 +334,22 @@ export default function App() {
   const selected = selectedId ? data.countries[selectedId] : null
   const hideAnswers = studying && !quizRevealed
   const showRegionScale = Boolean((selected || previewRegions) && regionsColored)
-  const legendNote =
-    selected && regions && metric !== 'none' && !regionsColored
-      ? `${metricInfo.label}: nessun dato regionale per ${selected.name}`
-      : undefined
+  const regionNote = selected && regions ? regionColorNote() : null
+  const legendNote = regionNote && !regionsColored ? regionNote : undefined
+  /** Why the selected country's regions are (or are not) colored, shown in the panel and the legend. */
+  function regionColorNote(): string | null {
+    if (!selected || !regions) return null
+    const label = metricInfo.label
+    if (metric === 'none') return 'Nessun indicatore: le regioni sono distinte solo da tinte.'
+    if (timelineYear != null)
+      return `Con la linea del tempo le regioni non si colorano: le serie storiche esistono solo per gli Stati.`
+    if (!metricInfo.regional) return `${label} esiste solo per Stato: le regioni non si colorano.`
+    const own = regions.features.map((f) => f.properties)
+    const known = own.filter((r) => metricValue(r, metric) != null).length
+    if (!known) return `${label}: nessun dato per le regioni di ${selected.name}, lo Stato è colorato intero.`
+    if (known < own.length) return `${label} per regione: ${known} su ${own.length} con dato, le altre in grigio.`
+    return null
+  }
   const baseScope = !showRegionScale ? view.label : previewRegions ? 'Regioni' : `Regioni · ${selected!.name}`
   const legendScope = timelineYear != null ? `${view.label} · ${timelineYear}` : baseScope
   // While studying, the quiz may ask for regions and outline one, or show progress instead of the metric.
@@ -430,6 +442,7 @@ export default function App() {
             year={timelineYear}
             yearValues={yearValues}
             now={now}
+            regionNote={regionNote}
           />
         )}
       </aside>

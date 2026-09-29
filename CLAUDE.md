@@ -147,6 +147,8 @@ The OECD SDMX API is picky: only `/data/<flow>,/all?lastNObservations=1&format=c
   the hovered one (`previewId`, 120 ms delay); `mapRegions` merges both for the map. `null` = failed; the
   `setSelectedId` wrapper drops failures so selecting again retries.
 - Color scales: `colorScale()` over countries in focus; one region scale over regions of countries that have values.
+  `regionColorNote()` explains in the panel (`.map-note`) and the legend why the selected country's regions are or
+  are not colored: metric "none" (tints), timeline open, national-only metric, no regional data, or partial data.
 - Study mode hides names/capitals/cities/tooltips until an answer (`hideAnswers`); the quiz drives `selectedId`
   and `quizMap` (QuizMapState: pickMode, marks, regionId, progress); map clicks come back as `mapPick`.
 - Timeline: `year` (null = latest). History of the metric loads when the timeline is open or a country is selected
