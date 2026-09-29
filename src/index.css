@@ -140,10 +140,10 @@ h3 {
   left: 16px;
   width: var(--controls-w);
   max-height: calc(100dvh - 32px);
-  padding: 18px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .panel {
@@ -161,7 +161,7 @@ h3 {
 
 .brand {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -327,7 +327,7 @@ h3 {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .field-label {
@@ -341,15 +341,15 @@ h3 {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .chip {
-  padding: 6px 12px;
+  padding: 4px 9px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -370,53 +370,29 @@ h3 {
   color: var(--surface-solid);
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.metric-group {
-  grid-column: 1 / -1;
-  margin-top: 4px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
-.metric-group:first-child {
-  margin-top: 0;
-}
-
-.metric {
+.metric-select {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
+}
+
+.metric-select .metric-swatch {
+  position: absolute;
+  left: 11px;
+  pointer-events: none;
+}
+
+.metric-select select {
+  width: 100%;
+  padding: 8px 10px 8px 42px;
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: transparent;
-  font-size: 12.5px;
+  background: var(--surface-solid);
+  font: inherit;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-
-.metric:hover {
-  background: var(--surface-2);
-}
-
-.metric.active {
-  background: var(--raised);
-  border-color: var(--border-strong);
   color: var(--text-primary);
-  box-shadow: 0 2px 8px rgb(16 24 40 / 8%);
+  cursor: pointer;
 }
 
 .metric-swatch {
@@ -472,7 +448,7 @@ h3 {
 }
 
 .toggles {
-  gap: 10px;
+  gap: 7px;
 }
 
 .switch {
@@ -717,6 +693,19 @@ h3 {
   line-height: 1.6;
 }
 
+.sources > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.sources[open] > summary {
+  margin-bottom: 6px;
+}
+
+.sources p {
+  margin: 0 0 4px;
+}
+
 .sources a {
   color: var(--text-secondary);
 }
@@ -731,7 +720,7 @@ h3 {
 }
 
 .shortcuts {
-  margin: 10px 0 0;
+  margin: 0 0 4px;
   font-size: 11px;
   color: var(--text-muted);
 }
@@ -1344,6 +1333,31 @@ tbody tr:last-child td {
 
 /* ---------------------------------------------------------------- medium screens */
 
+/* Short desktop screens (≤ 760 px, e.g. 1280×720): tighter spacing so the controls card still fits without
+   scrolling. */
+@media (min-width: 900px) and (max-height: 760px) {
+  .controls {
+    padding: 13px 14px;
+    gap: 9px;
+  }
+
+  .field {
+    gap: 4px;
+  }
+
+  .toggles {
+    gap: 5px;
+  }
+
+  .legend {
+    padding-top: 9px;
+  }
+
+  .legend-head {
+    margin-bottom: 6px;
+  }
+}
+
 @media (min-width: 900px) and (max-width: 1279px) {
   :root {
     --controls-w: 264px;
@@ -1364,10 +1378,6 @@ tbody tr:last-child td {
 
   .study-button {
     padding: 7px 11px 7px 9px;
-  }
-
-  .metric-grid {
-    grid-template-columns: 1fr;
   }
 
   .panel-header h2 {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Dataset } from '../data'
 import { RAMPS, rampGradient, type Scale } from '../scale'
 import type { Background, Metric, Projection, ViewId } from '../types'
@@ -162,6 +162,44 @@ function ShareButton() {
   )
 }
 
+/** The metric as a grouped select with the chosen ramp beside it: one row instead of a grid of twelve buttons. */
+function MetricSelect({ metric, onMetric }: { metric: Metric; onMetric: (m: Metric) => void }) {
+  const groups = [...new Set(METRICS.map((m) => m.group))]
+  return (
+    <div className="metric-select">
+      <span
+        className="metric-swatch"
+        style={{ background: metric === 'none' ? undefined : rampGradient(RAMPS[metric]) }}
+        aria-hidden
+      />
+      <select
+        value={metric}
+        aria-label="Colora per"
+        title={METRIC_HINT[metric]}
+        onChange={(e) => onMetric(e.target.value as Metric)}
+      >
+        {groups.map((g) =>
+          g ? (
+            <optgroup key={g} label={g}>
+              {METRICS.filter((m) => m.group === g).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : (
+            METRICS.filter((m) => !m.group).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))
+          ),
+        )}
+      </select>
+    </div>
+  )
+}
+
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <label className="switch">
@@ -180,7 +218,7 @@ export function Controls(props: Props) {
       <header className="brand">
         <div>
           <h1>Atlante</h1>
-          <p>Stati, capitali e città del mondo</p>
+
         </div>
         <span className="brand-actions">
           <ShareButton />
@@ -231,32 +269,7 @@ export function Controls(props: Props) {
         </div>
         <div className="field">
           <span className="field-label">Colora per</span>
-          <div className="metric-grid" role="radiogroup" aria-label="Colora per">
-            {METRICS.map((m, i) => (
-              <Fragment key={m.id}>
-                {m.group && m.group !== METRICS[i - 1]?.group && (
-                  <span className="metric-group" aria-hidden>
-                    {m.group}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={metric === m.id}
-                  title={METRIC_HINT[m.id]}
-                  className={`metric${metric === m.id ? ' active' : ''}`}
-                  onClick={() => onMetric(m.id)}
-                >
-                  <span
-                    className="metric-swatch"
-                    style={{ background: m.id === 'none' ? undefined : rampGradient(RAMPS[m.id]) }}
-                    aria-hidden
-                  />
-                  {m.label}
-                </button>
-              </Fragment>
-            ))}
-          </div>
+          <MetricSelect metric={metric} onMetric={onMetric} />
         </div>
         <div className="field">
           <span className="field-label">Proiezione</span>
@@ -300,7 +313,7 @@ export function Controls(props: Props) {
         <div className="field toggles">
           <Switch checked={props.showCapitals} onChange={props.onShowCapitals} label="Capitali e capoluoghi" />
           <Switch checked={props.showCities} onChange={props.onShowCities} label="Città principali" />
-          <Switch checked={props.night} onChange={props.onNight} label="Giorno e notte (ora attuale)" />
+          <Switch checked={props.night} onChange={props.onNight} label="Giorno e notte" />
         </div>
       </details>
       <Legend
@@ -311,20 +324,24 @@ export function Controls(props: Props) {
         note={props.legendNote}
       />
       <Timeline {...props.timeline} />
-      <p className="shortcuts" aria-label="Scorciatoie da tastiera">
-        <kbd>R</kbd> ripristina la mappa · <kbd>S</kbd> studio · <kbd>/</kbd> cerca · <kbd>Esc</kbd> chiudi
-      </p>
-      <footer className="sources">
-        Dati al {new Date(data.meta.generatedAt).toLocaleDateString('it-IT')} ·{' '}
-        {data.meta.sources.map((s, i) => (
-          <span key={s.name}>
-            {i > 0 && ' · '}
-            <a href={s.url} target="_blank" rel="noreferrer" title={`${s.usedFor} — ${s.license}`}>
-              {s.name.split(' (')[0]}
-            </a>
-          </span>
-        ))}
-      </footer>
+      {/* Folded to keep the card within the screen; the sources are also behind the map's ⓘ button. */}
+      <details className="sources">
+        <summary>Fonti e scorciatoie</summary>
+        <p className="shortcuts" aria-label="Scorciatoie da tastiera">
+          <kbd>R</kbd> ripristina la mappa · <kbd>S</kbd> studio · <kbd>/</kbd> cerca · <kbd>Esc</kbd> chiudi
+        </p>
+        <p>
+          Dati al {new Date(data.meta.generatedAt).toLocaleDateString('it-IT')} ·{' '}
+          {data.meta.sources.map((s, i) => (
+            <span key={s.name}>
+              {i > 0 && ' · '}
+              <a href={s.url} target="_blank" rel="noreferrer" title={`${s.usedFor} — ${s.license}`}>
+                {s.name.split(' (')[0]}
+              </a>
+            </span>
+          ))}
+        </p>
+      </details>
     </aside>
   )
 }

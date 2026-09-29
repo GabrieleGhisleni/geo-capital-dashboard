@@ -56,8 +56,10 @@ src/projection.ts         Equal Earth via fake lon/lat through MapLibre's Mercat
 src/gestures.ts           trackpad pinch/pan vs mouse wheel classification
 src/useTheme.ts           light/dark from prefers-color-scheme
 src/components/MapView.tsx    the map: style, sources, layers, feature-state sync, hover/click, camera
-src/components/Controls.tsx   left card: search, view chips, grouped metric picker, projection, background, toggles, Legend,
-                              shortcut hints, sources
+src/components/Controls.tsx   left card: share + study buttons, search, view chips, MetricSelect (grouped select + ramp
+                              swatch), projection, background, toggles, Legend, Timeline, folded "Fonti e scorciatoie".
+                              Sized to fit 100vh on desktop (≥ 720 px tall; a max-height ≤ 760px rule tightens it):
+                              keep new controls compact or fold them
 src/components/Legend.tsx     color bar + ticks + hovered value marker
 src/components/Timeline.tsx   year slider + play under the legend (closed = latest data)
 src/components/SidePanel.tsx  right card: Ranking (overview, with flags) or CountryDetail (flag, stats incl.

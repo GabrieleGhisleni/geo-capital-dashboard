@@ -758,12 +758,17 @@ export function MapView(props: Props) {
       if (target?.kind === 'city') latest.current.onSelect(target.city.countryId)
     })
     map.on('movestart', () => latest.current.onInspect(null, 0, 0))
-    map.on('load', () => {
-      // MapLibre opens the compact attribution until the first drag; start folded into its ⓘ button instead
-      // (a click opens it; on desktop the sources are also listed in the controls card).
+    // MapLibre opens the compact attribution until the first drag; start folded into its ⓘ button instead
+    // (a click opens it; the sources are also listed in the controls card). Folded at once and again on load,
+    // in case the first style update reopens it.
+    const foldAttribution = () => {
       const attribution = map.getContainer().querySelector('.maplibregl-ctrl-attrib')
       attribution?.classList.remove('maplibregl-compact-show')
       attribution?.removeAttribute('open')
+    }
+    foldAttribution()
+    map.on('load', () => {
+      foldAttribution()
       readyRef.current = true
       syncAll(map, latest.current)
       moveCamera(map, latest.current, false)
