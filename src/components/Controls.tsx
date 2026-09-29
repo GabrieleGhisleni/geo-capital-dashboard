@@ -27,6 +27,8 @@ type Props = {
   showCities: boolean
   onShowCities: (v: boolean) => void
   onSelectCountry: (id: string) => void
+  /** Selected country outside study mode: on phones, selecting one folds the card to leave its regions in view. */
+  focusCountryId: string | null
   onStudy: () => void
   studying: boolean
   scale: Scale | null
@@ -59,6 +61,20 @@ function useOptionsOpen() {
     return () => mql.removeEventListener('change', onChange)
   }, [])
   return [open, setOpen] as const
+}
+
+/**
+ * Phones: the whole card folds down to its header row, so the map gets the screen. It folds by itself when a
+ * country is selected, so the country and its region names show between the header and the bottom sheet.
+ */
+function useCollapsed(focusCountryId: string | null) {
+  const [collapsed, setCollapsed] = useState(() => Boolean(focusCountryId) && window.matchMedia(NARROW_QUERY).matches)
+  const [seenId, setSeenId] = useState(focusCountryId)
+  if (focusCountryId !== seenId) {
+    setSeenId(focusCountryId)
+    if (focusCountryId && window.matchMedia(NARROW_QUERY).matches) setCollapsed(true)
+  }
+  return [collapsed, setCollapsed] as const
 }
 
 function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => void }) {
@@ -241,8 +257,9 @@ function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 export function Controls(props: Props) {
   const { data, viewId, onView, metric, onMetric, projection, onProjection } = props
   const [optionsOpen, setOptionsOpen] = useOptionsOpen()
+  const [collapsed, setCollapsed] = useCollapsed(props.focusCountryId)
   return (
-    <aside className="card controls" aria-label="Controlli">
+    <aside className={`card controls${collapsed ? ' collapsed' : ''}`} aria-label="Controlli">
       <header className="brand">
         <div>
           <h1>Atlante</h1>
@@ -269,6 +286,25 @@ export function Controls(props: Props) {
               />
             </svg>
             Studia
+          </button>
+          <button
+            type="button"
+            className="icon-button collapse-button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Mostra il menu' : 'Riduci il menu'}
+            aria-label={collapsed ? 'Mostra il menu' : 'Riduci il menu'}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden>
+              <path
+                d={collapsed ? 'm5 8 5 5 5-5' : 'm5 12 5-5 5 5'}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
         </span>
       </header>

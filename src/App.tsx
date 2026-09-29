@@ -410,6 +410,7 @@ export default function App() {
         showCities={showCities}
         onShowCities={setShowCities}
         onSelectCountry={setSelectedId}
+        focusCountryId={studying ? null : selectedId}
         onStudy={toggleStudy}
         theme={theme}
         onTheme={setTheme}

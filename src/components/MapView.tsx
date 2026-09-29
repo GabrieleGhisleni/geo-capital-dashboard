@@ -141,6 +141,7 @@ const L = {
   citiesAll: 'cities-all',
   cities: 'cities',
   regionCap: 'region-cap',
+  regionLabel: 'region-label',
   capital: 'capital',
 } as const
 
@@ -388,6 +389,7 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
       capitals: { type: 'geojson', data: inView(src.capitals, projection) },
       cities: { type: 'geojson', data: inView(src.cities, projection) },
       regionCapitals: { type: 'geojson', data: empty },
+      regionLabels: { type: 'geojson', data: empty },
       night: { type: 'geojson', data: empty },
       quizMarks: { type: 'geojson', data: empty },
       relief: {
@@ -557,7 +559,7 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
         },
         paint: { 'text-color': p.text, ...halo },
       },
-      // Country names go last in the style so they are placed first and win label collisions.
+      // Country names go (almost) last in the style so they are placed first and win label collisions.
       {
         id: L.countryLabel,
         type: 'symbol',
@@ -577,6 +579,25 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
           'text-halo-width': 1.4,
           'text-opacity': ['step', ['zoom'], 0, 1.8, 1],
         },
+      },
+      // Region names show as soon as a country is selected (phones have no hover to reveal them). Last in the
+      // style, so they are placed first: the selected country's regions win over capoluoghi and foreign names
+      // (dots stay, their text is optional); the largest regions go first.
+      {
+        id: L.regionLabel,
+        type: 'symbol',
+        source: 'regionLabels',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': FONT_BOLD,
+          'text-transform': 'uppercase',
+          'text-letter-spacing': 0.05,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 9.5, 7, 12],
+          'text-max-width': 7,
+          'text-padding': 2,
+          'symbol-sort-key': ['get', 'sort'],
+        },
+        paint: { 'text-color': p.textMuted, ...halo },
       },
     ],
   }
@@ -605,12 +626,14 @@ function applyTheme(map: MapLibre, theme: Theme) {
   map.setPaintProperty(L.regionBorder, 'line-color', p.border)
   for (const id of [L.countryHover, L.regionHover, L.countrySelected]) map.setPaintProperty(id, 'line-color', p.outline)
   syncDotImages(map, theme)
-  for (const id of [L.citiesAll, L.cities]) map.setPaintProperty(id, 'text-color', p.textMuted)
+  for (const id of [L.citiesAll, L.cities, L.regionLabel]) map.setPaintProperty(id, 'text-color', p.textMuted)
   for (const id of [L.regionCap, L.capital]) map.setPaintProperty(id, 'text-color', p.text)
   const labelPaint = countryLabelPaint(p)
   map.setPaintProperty(L.countryLabel, 'text-color', labelPaint['text-color'])
   map.setPaintProperty(L.countryLabel, 'text-halo-color', labelPaint['text-halo-color'])
-  for (const id of [L.citiesAll, L.cities, L.regionCap, L.capital]) map.setPaintProperty(id, 'text-halo-color', p.halo)
+  for (const id of [L.citiesAll, L.cities, L.regionCap, L.regionLabel, L.capital]) {
+    map.setPaintProperty(id, 'text-halo-color', p.halo)
+  }
 }
 
 function hoverTarget(f: MapGeoJSONFeature): HoverTarget | null {
@@ -917,6 +940,11 @@ function syncAll(map: MapLibre, props: Props) {
     (r) => (r.capLat != null && r.capLon != null ? [r.capLon, r.capLat] : null),
   )
   map.getSource<GeoJSONSource>('regionCapitals')!.setData(inView(regionCaps, projection))
+  const regionLabels = pointCollection(
+    (regions?.features ?? []).map((f) => ({ name: f.properties.name, sort: -(f.properties.area ?? 0), at: f.properties.label })),
+    (r) => r.at,
+  )
+  map.getSource<GeoJSONSource>('regionLabels')!.setData(inView(regionLabels, projection))
 
   // Regional capitals already have their own marker: skip the same city in the cities layer.
   const capPoints = regionCaps.features.map((f) => f.geometry.coordinates)
@@ -942,7 +970,7 @@ function syncAll(map: MapLibre, props: Props) {
   const vis = (on: boolean) => (on ? 'visible' : 'none')
   for (const id of [L.capital, L.regionCap]) map.setLayoutProperty(id, 'visibility', vis(props.showCapitals))
   for (const id of [L.cities, L.citiesAll]) map.setLayoutProperty(id, 'visibility', vis(props.showCities))
-  map.setLayoutProperty(L.countryLabel, 'visibility', vis(props.labels))
+  for (const id of [L.countryLabel, L.regionLabel]) map.setLayoutProperty(id, 'visibility', vis(props.labels))
 }
 
 // cameraForBounds sizes bounds as if on a flat map; on the globe the country's near face bulges

@@ -203,6 +203,11 @@ h3 {
   color: var(--text-primary);
 }
 
+/* Folds the controls card on phones only (see the phone media query). */
+.collapse-button {
+  display: none;
+}
+
 .share-button.is-done {
   border-color: var(--accent);
   color: var(--accent);
@@ -1454,6 +1459,19 @@ tbody tr:last-child td {
 
   .brand {
     align-items: center;
+  }
+
+  .collapse-button {
+    display: grid;
+  }
+
+  /* Folded: only the header row stays, the map gets the rest of the screen. */
+  .controls.collapsed {
+    padding-block: 8px;
+  }
+
+  .controls.collapsed > :not(.brand) {
+    display: none;
   }
 
   .brand h1 {

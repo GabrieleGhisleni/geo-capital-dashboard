@@ -54,12 +54,15 @@ src/views.ts              VIEWS (continent bounds), METRICS (label, unit, region
 src/scale.ts              RAMPS per metric, log/linear scales, metricValue, all number formatting (it-IT)
 src/projection.ts         Equal Earth via fake lon/lat through MapLibre's Mercator (see header comment)
 src/gestures.ts           trackpad pinch/pan vs mouse wheel classification
+src/labelPoint.ts         region name anchor: pole of inaccessibility of the largest part (polylabel algorithm)
 src/useTheme.ts           light (default) / dark toggle, saved in localStorage `theme`, set as <html data-theme>
 src/components/MapView.tsx    the map: style, sources, layers, feature-state sync, hover/click, camera
 src/components/Controls.tsx   left card: theme, share + study buttons, search, view chips, MetricGrid (grouped buttons + ramp
                               swatch), projection, background, toggles, Legend, Timeline, folded "Fonti e scorciatoie".
                               The metric grid is kept expanded (user preference): the card scrolls on short screens;
-                              a max-height ≤ 760px rule tightens spacing. Keep new controls compact or fold them
+                              a max-height ≤ 760px rule tightens spacing. Keep new controls compact or fold them.
+                              Phones: a chevron folds the card to its header row (`.controls.collapsed`); it folds by
+                              itself when a country is selected outside study mode (`focusCountryId`)
 src/components/Legend.tsx     color bar + ticks + hovered value marker
 src/components/Timeline.tsx   year slider + play under the legend (closed = latest data)
 src/components/SidePanel.tsx  right card: Ranking (overview, with flags) or CountryDetail (flag, stats incl.
@@ -84,7 +87,7 @@ src/index.css                 design tokens (:root, dark overrides) and all layo
 - `admin1/<ADM0_A3>.json`: TopoJSON of regions; properties = Region: id, name (it), type, iso, population(+Year),
   area(+Source), gdp, gdpPerCapita, gdpYear, lifeExpectancy(+Year), capName/capLat/capLon/capPop, timezone (IANA, nearest GeoNames place to
   the capital; the tooltip falls back to the country's zone when it has only one). Optional fields are
-  omitted when unknown. `countryId` and `colorIndex` are added client-side by `loadRegions`.
+  omitted when unknown. `countryId`, `colorIndex` and `label` (name anchor) are added client-side by `loadRegions`.
 - `history/<metric>.json`: `{ from: firstYear, values: { [ADM0_A3]: (number|null)[] } }`, one value per year
   (World Bank, 1960–latest, trimmed to years where ≥40% of countries report). Density is derived client-side.
 - Country `capitals[].timezone` (IANA, nearest GeoNames place) and `timezones` (zones of its GeoNames places,
@@ -128,7 +131,8 @@ The OECD SDMX API is picky: only `/data/<flow>,/all?lastNObservations=1&format=c
 - Region fill: ramp where `t` is a number, else tint by `colorIndex` (greedy graph coloring from TopoJSON neighbours);
   see-through when a metric colors the map but the country has no regional values (the country keeps its color).
 - Point icons are drawn on canvas (`DOTS`): capital = bullseye, region capital = filled dark, cities = plain dots.
-  Country labels are the last layer so they win collisions. Glyph URLs map Manrope stacks to Noto PBFs.
+  Region names (`region-label`, source `regionLabels` from `Region.label`) are the last layer, so the selected
+  country's regions win collisions; country labels come right before them. Both hide with `labels` (study mode). Glyph URLs map Manrope stacks to Noto PBFs.
 - Background (`background` prop, 'plain' | 'relief'): the `relief` raster layer (NASA GIBS Blue Marble, levels 0–8,
   `RELIEF_TILES`) sits right above the ocean; `syncBackground` shows it (never in Equal Earth: raster tiles can't
   follow the fake lon/lat) and swaps fill opacities (`countryFillOpacity`, `regionFillOpacity`: metric colors at 0.62,

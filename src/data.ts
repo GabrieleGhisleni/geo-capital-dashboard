@@ -1,6 +1,7 @@
 import type { FeatureCollection, Geometry } from 'geojson'
 import { feature, neighbors } from 'topojson-client'
 import type { GeometryCollection, Topology } from 'topojson-specification'
+import { labelPoint } from './labelPoint'
 import type { City, CityTuple, Country, History, HoverTarget, Meta, Metric, Region } from './types'
 
 const BASE = import.meta.env.BASE_URL
@@ -94,7 +95,7 @@ function regionsFromTopo(topo: Topology, countryId: string): FeatureCollection<G
   const geometries = (topo.objects[name] as GeometryCollection).geometries ?? []
   const colors = colorIndices(neighbors(geometries as Parameters<typeof neighbors>[0]))
   fc.features.forEach((f, i) => {
-    f.properties = { ...f.properties, countryId, colorIndex: colors[i] ?? 0 }
+    f.properties = { ...f.properties, countryId, colorIndex: colors[i] ?? 0, label: labelPoint(f.geometry) }
   })
   return fc
 }

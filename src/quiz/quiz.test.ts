@@ -353,7 +353,7 @@ describe('where is…? (map answers)', () => {
 
 describe('regions quiz', () => {
   const region = (id: string, name: string, capName?: string) =>
-    ({ id, name, capName, countryId: 'ITA', colorIndex: 0 }) as const
+    ({ id, name, capName, countryId: 'ITA', colorIndex: 0, label: null }) as const
   const regions = [
     region('a', 'Lazio', 'Roma'),
     region('b', 'Lombardia', 'Milano'),
