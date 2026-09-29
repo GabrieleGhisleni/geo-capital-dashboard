@@ -29,25 +29,24 @@
   -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1016;
-    --surface-1: rgb(22 28 36 / 82%);
-    --surface-solid: #161c24;
-    --surface-2: #202731;
-    --raised: #2b3440;
-    --border: rgb(255 255 255 / 8%);
-    --border-strong: rgb(255 255 255 / 16%);
-    --text-primary: #f1f3f7;
-    --text-secondary: #c2c8d2;
-    --text-muted: #8a93a3;
-    --accent: #8b83ff;
-    --accent-contrast: #12141c;
-    --accent-soft: rgb(139 131 255 / 14%);
-    --no-data: #363c46;
-    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 16px 40px rgb(0 0 0 / 45%);
-    color-scheme: dark;
-  }
+/* Theme: light unless the user picks dark (useTheme sets data-theme on <html>). */
+:root[data-theme='dark'] {
+  --bg: #0b1016;
+  --surface-1: rgb(22 28 36 / 82%);
+  --surface-solid: #161c24;
+  --surface-2: #202731;
+  --raised: #2b3440;
+  --border: rgb(255 255 255 / 8%);
+  --border-strong: rgb(255 255 255 / 16%);
+  --text-primary: #f1f3f7;
+  --text-secondary: #c2c8d2;
+  --text-muted: #8a93a3;
+  --accent: #8b83ff;
+  --accent-contrast: #12141c;
+  --accent-soft: rgb(139 131 255 / 14%);
+  --no-data: #363c46;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 16px 40px rgb(0 0 0 / 45%);
+  color-scheme: dark;
 }
 
 * {
@@ -114,10 +113,8 @@ h3 {
   background: radial-gradient(ellipse at 50% 45%, #f6f9fb 0%, var(--bg) 70%);
 }
 
-@media (prefers-color-scheme: dark) {
-  .app > .map {
-    background: radial-gradient(ellipse at 50% 45%, #141c26 0%, var(--bg) 70%);
-  }
+:root[data-theme='dark'] .app > .map {
+  background: radial-gradient(ellipse at 50% 45%, #141c26 0%, var(--bg) 70%);
 }
 
 .card {
@@ -186,7 +183,7 @@ h3 {
   flex: none;
 }
 
-.share-button {
+.icon-button {
   position: relative;
   display: grid;
   place-items: center;
@@ -201,7 +198,7 @@ h3 {
   cursor: pointer;
 }
 
-.share-button:hover {
+.icon-button:hover {
   background: var(--surface-2);
   color: var(--text-primary);
 }
@@ -211,7 +208,7 @@ h3 {
   color: var(--accent);
 }
 
-.share-button svg {
+.icon-button svg {
   width: 17px;
   height: 17px;
 }
@@ -370,29 +367,55 @@ h3 {
   color: var(--surface-solid);
 }
 
-.metric-select {
-  position: relative;
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.metric-group {
+  grid-column: 1 / -1;
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.metric-group:first-child {
+  margin-top: 0;
+}
+
+.metric {
   display: flex;
   align-items: center;
-}
-
-.metric-select .metric-swatch {
-  position: absolute;
-  left: 11px;
-  pointer-events: none;
-}
-
-.metric-select select {
-  width: 100%;
-  padding: 8px 10px 8px 42px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--surface-solid);
-  font: inherit;
-  font-size: 13px;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: transparent;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
+  line-height: 1.25;
+  color: var(--text-secondary);
+  text-align: left;
   cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.metric:hover {
+  background: var(--surface-2);
+}
+
+.metric.active {
+  background: var(--raised);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgb(16 24 40 / 8%);
 }
 
 .metric-swatch {
@@ -1316,11 +1339,9 @@ tbody tr:last-child td {
   color: var(--text-secondary);
 }
 
-@media (prefers-color-scheme: dark) {
-  .app .maplibregl-ctrl-icon,
-  .app .maplibregl-ctrl-attrib-button {
-    filter: invert(1);
-  }
+:root[data-theme='dark'] .app .maplibregl-ctrl-icon,
+:root[data-theme='dark'] .app .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
 }
 
 /* Keep zoom buttons and attribution in the visible map area, left of the side panel. */
@@ -1355,6 +1376,10 @@ tbody tr:last-child td {
 
   .legend-head {
     margin-bottom: 6px;
+  }
+
+  .metric {
+    padding: 4px 8px;
   }
 }
 

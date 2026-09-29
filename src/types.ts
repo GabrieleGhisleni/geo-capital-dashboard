@@ -84,6 +84,8 @@ export type Region = {
   capLat?: number
   capLon?: number
   capPop?: number
+  /** IANA zone of the regional capital (nearest GeoNames place). */
+  timezone?: string
   /** Added on load: owning country and a color index that differs from every neighbouring region. */
   countryId: string
   colorIndex: number

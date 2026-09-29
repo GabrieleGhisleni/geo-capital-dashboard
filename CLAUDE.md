@@ -54,12 +54,12 @@ src/views.ts              VIEWS (continent bounds), METRICS (label, unit, region
 src/scale.ts              RAMPS per metric, log/linear scales, metricValue, all number formatting (it-IT)
 src/projection.ts         Equal Earth via fake lon/lat through MapLibre's Mercator (see header comment)
 src/gestures.ts           trackpad pinch/pan vs mouse wheel classification
-src/useTheme.ts           light/dark from prefers-color-scheme
+src/useTheme.ts           light (default) / dark toggle, saved in localStorage `theme`, set as <html data-theme>
 src/components/MapView.tsx    the map: style, sources, layers, feature-state sync, hover/click, camera
-src/components/Controls.tsx   left card: share + study buttons, search, view chips, MetricSelect (grouped select + ramp
+src/components/Controls.tsx   left card: theme, share + study buttons, search, view chips, MetricGrid (grouped buttons + ramp
                               swatch), projection, background, toggles, Legend, Timeline, folded "Fonti e scorciatoie".
-                              Sized to fit 100vh on desktop (≥ 720 px tall; a max-height ≤ 760px rule tightens it):
-                              keep new controls compact or fold them
+                              The metric grid is kept expanded (user preference): the card scrolls on short screens;
+                              a max-height ≤ 760px rule tightens spacing. Keep new controls compact or fold them
 src/components/Legend.tsx     color bar + ticks + hovered value marker
 src/components/Timeline.tsx   year slider + play under the legend (closed = latest data)
 src/components/SidePanel.tsx  right card: Ranking (overview, with flags) or CountryDetail (flag, stats incl.
@@ -82,7 +82,8 @@ src/index.css                 design tokens (:root, dark overrides) and all layo
 - `countries.topo.json`: country polygons, feature id = ADM0_A3.
 - `cities.json`: `{ [ADM0_A3]: [name, lat, lon, population][] }` (tuples, ≤20 per country, capitals excluded).
 - `admin1/<ADM0_A3>.json`: TopoJSON of regions; properties = Region: id, name (it), type, iso, population(+Year),
-  area(+Source), gdp, gdpPerCapita, gdpYear, lifeExpectancy(+Year), capName/capLat/capLon/capPop. Optional fields are
+  area(+Source), gdp, gdpPerCapita, gdpYear, lifeExpectancy(+Year), capName/capLat/capLon/capPop, timezone (IANA, nearest GeoNames place to
+  the capital; the tooltip falls back to the country's zone when it has only one). Optional fields are
   omitted when unknown. `countryId` and `colorIndex` are added client-side by `loadRegions`.
 - `history/<metric>.json`: `{ from: firstYear, values: { [ADM0_A3]: (number|null)[] } }`, one value per year
   (World Bank, 1960–latest, trimmed to years where ≥40% of countries report). Density is derived client-side.
@@ -199,7 +200,7 @@ Add a regional indicator: load the source in build_data.py, join with `match_reg
   2 spaces, lines up to ~120. Python: stdlib only, type hints, `log()` for progress.
 - Keep the site static: no API keys, no runtime calls to third-party services. Single exception: the optional relief
   background (NASA GIBS tiles, off by default); with the plain background nothing external is contacted.
-- Colors are tokens in `index.css` `:root` with dark overrides; map colors live in `PALETTE` in MapView.tsx.
+- Colors are tokens in `index.css` `:root` with `:root[data-theme='dark']` overrides (not prefers-color-scheme); map colors live in `PALETTE` in MapView.tsx.
 - Layout breakpoints: phone < 900px (bottom sheet panel, 40dvh), compact 900–1279px, desktop ≥ 1280px. On phones
   the country detail is compacted to fit the sheet (4-column stat tiles without notes, values on one line shrunk to
   fit by `useFitText` in SidePanel.tsx, icon-only back button) and

@@ -385,6 +385,14 @@ def world_bank_series(indicator: str) -> dict[str, dict[int, float]]:
     return out
 
 
+def nearest_zone(lat: float, lon: float, places: list[dict]) -> str | None:
+    """IANA zone of the nearest GeoNames place within CAPITAL_TZ_KM (None when there is none)."""
+    dist, place = min(
+        ((haversine_km(lat, lon, c["lat"], c["lon"]), c) for c in places), key=lambda t: t[0], default=(math.inf, None)
+    )
+    return (place["timezone"] or None) if place and dist <= CAPITAL_TZ_KM else None
+
+
 def zone_countries() -> dict[str, str]:
     """IANA zone -> ISO2 country from the system tzdata (empty when unavailable)."""
     if not ZONE_TAB.exists():
@@ -948,6 +956,8 @@ def build_admin1(
             "capLat": cap["lat"] if cap else None,
             "capLon": cap["lon"] if cap else None,
             "capPop": cap["population"] if cap else None,
+            # Local time in the tooltip: the zone of the regional capital (Alaska, Western Australia, Siberia…).
+            "timezone": nearest_zone(cap["lat"], cap["lon"], cities_by_iso2.get(country.get("iso2"), [])) if cap else None,
             # Internal (not written): used to join the regional indicators below.
             "_qids": item_qids,
             "_names": [n for n in [name, *aliases] if n],
@@ -1414,12 +1424,7 @@ def build_cities(
         country["capitals"].sort(key=lambda c: -(c["population"] or 0))
         # Time zones: the capital's (nearest GeoNames place) and every zone the country's places use.
         for cap in country["capitals"]:
-            near = min(
-                ((haversine_km(cap["lat"], cap["lon"], c["lat"], c["lon"]), c) for c in cities_by_iso2.get(iso2, [])),
-                key=lambda t: t[0],
-                default=(math.inf, None),
-            )
-            cap["timezone"] = near[1]["timezone"] if near[0] <= CAPITAL_TZ_KM and near[1]["timezone"] else None
+            cap["timezone"] = nearest_zone(cap["lat"], cap["lon"], cities_by_iso2.get(iso2, []))
         own_zone = lambda z: bool(z) and zone_owner.get(z, iso2) == iso2  # noqa: E731
         zones = {c["timezone"] for c in own if own_zone(c["timezone"])}
         zones |= {c["timezone"] for c in country["capitals"] if c["timezone"]}

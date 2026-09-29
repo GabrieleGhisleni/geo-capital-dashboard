@@ -364,6 +364,9 @@ function buildStyle(data: Dataset, projection: Projection, theme: Theme): StyleS
     'text-max-width': 8,
     'text-optional': true,
     'symbol-sort-key': ['-', 0, ['coalesce', ['get', 'population'], 0]],
+    // Dots lie flat on the globe: near the horizon they foreshorten with the land instead of piling up
+    // as full-size markers along the rim while it spins (no effect on the flat projections).
+    'icon-pitch-alignment': 'map',
   }
   const halo = { 'text-halo-color': p.halo, 'text-halo-width': 1.6, 'text-halo-blur': 0.4 }
 

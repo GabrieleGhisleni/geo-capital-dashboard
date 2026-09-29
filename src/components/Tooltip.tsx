@@ -1,6 +1,6 @@
 import { flagUrl, type Dataset } from '../data'
 import { formatMetric, formatNumber, formatShare, metricValue } from '../scale'
-import type { Country, HoverTarget, Metric } from '../types'
+import type { Country, HoverTarget, Metric, Region } from '../types'
 import { localTime } from '../time'
 import { METRIC_BY_ID } from '../views'
 
@@ -41,6 +41,12 @@ function Row({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   )
+}
+
+/** The region's own zone, else the country's when it has only one (regions without a known capital). */
+function regionZone(r: Region, country: Country | undefined): string | null {
+  if (r.timezone) return r.timezone
+  return country?.timezones.length === 1 ? country.timezones[0] : null
 }
 
 type BodyProps = Pick<Props, 'data' | 'metric' | 'year' | 'yearValues' | 'now'> & { target: HoverTarget }
@@ -100,6 +106,7 @@ function Body({ data, target, metric, year: timelineYear, yearValues, now }: Bod
     case 'region': {
       const r = target.region
       const country = data.countries[r.countryId]
+      const time = regionZone(r, country) && localTime(regionZone(r, country)!, now)
       return (
         <>
           <div className="tt-title">{r.name}</div>
@@ -111,6 +118,7 @@ function Body({ data, target, metric, year: timelineYear, yearValues, now }: Bod
           )}
           <Row label="Superficie" value={formatMetric(r.area, 'area')} />
           <Row label="Densità" value={formatMetric(metricValue(r, 'density'), 'density')} />
+          {time && <Row label="Ora locale" value={time} />}
           {r.gdpPerCapita != null && (
             <Row label={`PIL pro capite${year(r.gdpYear)}`} value={formatMetric(r.gdpPerCapita, 'gdpPerCapita')} />
           )}
@@ -124,12 +132,14 @@ function Body({ data, target, metric, year: timelineYear, yearValues, now }: Bod
     case 'region-capital': {
       const r = target.region
       const country = data.countries[r.countryId]
+      const time = regionZone(r, country) && localTime(regionZone(r, country)!, now)
       return (
         <>
           <div className="tt-title">{r.capName}</div>
           <div className="tt-sub">Capoluogo · {r.name}</div>
           <Row label="Abitanti · % Stato" value={withShare(r.capPop, country?.population)} />
           {formatShare(r.capPop, r.population) && <Row label="Quota della regione" value={formatShare(r.capPop, r.population)!} />}
+          {time && <Row label="Ora locale" value={time} />}
         </>
       )
     }

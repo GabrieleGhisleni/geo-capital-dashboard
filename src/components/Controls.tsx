@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { Dataset } from '../data'
 import { RAMPS, rampGradient, type Scale } from '../scale'
 import type { Background, Metric, Projection, ViewId } from '../types'
 import { METRIC_HINT, METRICS, VIEWS } from '../views'
 import { Legend } from './Legend'
 import { Timeline, type TimelineProps } from './Timeline'
+import type { Theme } from '../useTheme'
 
 type Props = {
   data: Dataset
@@ -19,6 +20,8 @@ type Props = {
   night: boolean
   onNight: (v: boolean) => void
   timeline: TimelineProps
+  theme: Theme
+  onTheme: (t: Theme) => void
   showCapitals: boolean
   onShowCapitals: (v: boolean) => void
   showCities: boolean
@@ -137,7 +140,7 @@ function ShareButton() {
   return (
     <button
       type="button"
-      className={`share-button${copied ? ' is-done' : ''}`}
+      className={`icon-button share-button${copied ? ' is-done' : ''}`}
       onClick={share}
       title="Condividi questa mappa (vista, indicatore, Stato, anno)"
       aria-label={copied ? 'Link copiato' : 'Condividi questa mappa'}
@@ -162,40 +165,65 @@ function ShareButton() {
   )
 }
 
-/** The metric as a grouped select with the chosen ramp beside it: one row instead of a grid of twelve buttons. */
-function MetricSelect({ metric, onMetric }: { metric: Metric; onMetric: (m: Metric) => void }) {
-  const groups = [...new Set(METRICS.map((m) => m.group))]
+function ThemeButton({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme) => void }) {
+  const dark = theme === 'dark'
   return (
-    <div className="metric-select">
-      <span
-        className="metric-swatch"
-        style={{ background: metric === 'none' ? undefined : rampGradient(RAMPS[metric]) }}
-        aria-hidden
-      />
-      <select
-        value={metric}
-        aria-label="Colora per"
-        title={METRIC_HINT[metric]}
-        onChange={(e) => onMetric(e.target.value as Metric)}
-      >
-        {groups.map((g) =>
-          g ? (
-            <optgroup key={g} label={g}>
-              {METRICS.filter((m) => m.group === g).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : (
-            METRICS.filter((m) => !m.group).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))
-          ),
+    <button
+      type="button"
+      className="icon-button"
+      onClick={() => onTheme(dark ? 'light' : 'dark')}
+      aria-pressed={dark}
+      title={dark ? 'Tema chiaro' : 'Tema scuro'}
+      aria-label="Tema scuro"
+    >
+      <svg viewBox="0 0 20 20" aria-hidden>
+        {dark ? (
+          <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+            <circle cx="10" cy="10" r="3.4" />
+            <path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M4.7 15.3 6 14M14 6l1.3-1.3" />
+          </g>
+        ) : (
+          <path
+            d="M16 12.2A6.5 6.5 0 0 1 7.8 4a6.5 6.5 0 1 0 8.2 8.2Z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinejoin="round"
+          />
         )}
-      </select>
+      </svg>
+    </button>
+  )
+}
+
+/** Every metric as a button in a two-column grid, grouped by theme, each with its color ramp. */
+function MetricGrid({ metric, onMetric }: { metric: Metric; onMetric: (m: Metric) => void }) {
+  return (
+    <div className="metric-grid" role="radiogroup" aria-label="Colora per">
+      {METRICS.map((m, i) => (
+        <Fragment key={m.id}>
+          {m.group && m.group !== METRICS[i - 1]?.group && (
+            <span className="metric-group" aria-hidden>
+              {m.group}
+            </span>
+          )}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={metric === m.id}
+            title={METRIC_HINT[m.id]}
+            className={`metric${metric === m.id ? ' active' : ''}`}
+            onClick={() => onMetric(m.id)}
+          >
+            <span
+              className="metric-swatch"
+              style={{ background: m.id === 'none' ? undefined : rampGradient(RAMPS[m.id]) }}
+              aria-hidden
+            />
+            {m.label}
+          </button>
+        </Fragment>
+      ))}
     </div>
   )
 }
@@ -221,6 +249,7 @@ export function Controls(props: Props) {
 
         </div>
         <span className="brand-actions">
+          <ThemeButton theme={props.theme} onTheme={props.onTheme} />
           <ShareButton />
           <button
             type="button"
@@ -269,7 +298,7 @@ export function Controls(props: Props) {
         </div>
         <div className="field">
           <span className="field-label">Colora per</span>
-          <MetricSelect metric={metric} onMetric={onMetric} />
+          <MetricGrid metric={metric} onMetric={onMetric} />
         </div>
         <div className="field">
           <span className="field-label">Proiezione</span>

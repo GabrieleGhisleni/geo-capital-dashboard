@@ -117,7 +117,7 @@ export default function App() {
     setSelected(id)
   }, [])
   const [hover, setHover] = useState<{ target: HoverTarget; x: number; y: number } | null>(null)
-  const theme = useTheme()
+  const [theme, setTheme] = useTheme()
   const narrow = useMedia('(max-width: 899px)')
   const compact = useMedia('(max-width: 1279px)')
 
@@ -411,6 +411,8 @@ export default function App() {
         onShowCities={setShowCities}
         onSelectCountry={setSelectedId}
         onStudy={toggleStudy}
+        theme={theme}
+        onTheme={setTheme}
         studying={studying}
         scale={showRegionScale ? region.scale : country.scale}
         legendScope={legendScope}

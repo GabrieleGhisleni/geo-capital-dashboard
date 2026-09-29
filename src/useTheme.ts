@@ -2,16 +2,26 @@ import { useEffect, useState } from 'react'
 
 export type Theme = 'light' | 'dark'
 
-const query = '(prefers-color-scheme: dark)'
+const STORAGE_KEY = 'theme'
 
-/** Follows the OS color scheme. */
-export function useTheme(): Theme {
-  const [theme, setTheme] = useState<Theme>(() => (window.matchMedia(query).matches ? 'dark' : 'light'))
+function storedTheme(): Theme {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light' // storage blocked (private mode, sandboxed frame)
+  }
+}
+
+/** Light by default, dark on request; the choice is remembered and mirrored on <html data-theme> for the CSS. */
+export function useTheme(): [Theme, (t: Theme) => void] {
+  const [theme, setTheme] = useState<Theme>(storedTheme)
   useEffect(() => {
-    const mql = window.matchMedia(query)
-    const onChange = () => setTheme(mql.matches ? 'dark' : 'light')
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-  return theme
+    document.documentElement.dataset.theme = theme
+    try {
+      localStorage.setItem(STORAGE_KEY, theme)
+    } catch {
+      // not persisted: the page still switches
+    }
+  }, [theme])
+  return [theme, setTheme]
 }
