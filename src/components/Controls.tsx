@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { Dataset } from '../data'
 import { RAMPS, rampGradient, type Scale } from '../scale'
-import type { Metric, Projection, ViewId } from '../types'
-import { METRICS, VIEWS } from '../views'
+import type { Background, Metric, Projection, ViewId } from '../types'
+import { METRIC_HINT, METRICS, VIEWS } from '../views'
 import { Legend } from './Legend'
+import { Timeline, type TimelineProps } from './Timeline'
 
 type Props = {
   data: Dataset
@@ -13,6 +14,11 @@ type Props = {
   onMetric: (m: Metric) => void
   projection: Projection
   onProjection: (p: Projection) => void
+  background: Background
+  onBackground: (b: Background) => void
+  night: boolean
+  onNight: (v: boolean) => void
+  timeline: TimelineProps
   showCapitals: boolean
   onShowCapitals: (v: boolean) => void
   showCities: boolean
@@ -27,6 +33,12 @@ type Props = {
 }
 
 const NARROW_QUERY = '(max-width: 899px)'
+export const SEARCH_INPUT_ID = 'country-search'
+
+const BACKGROUNDS: { id: Background; label: string; hint: string }[] = [
+  { id: 'plain', label: 'Semplice', hint: 'Solo i colori della mappa' },
+  { id: 'relief', label: 'Rilievo', hint: 'Rilievo e fondali marini (immagini NASA, caricate da internet)' },
+]
 
 const PROJECTIONS: { id: Projection; label: string; hint: string }[] = [
   { id: 'globe', label: 'Globo', hint: 'Il globo: forme e aree reali' },
@@ -80,6 +92,7 @@ function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => v
         <path d="m13 13 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
       <input
+        id={SEARCH_INPUT_ID}
         type="search"
         list="country-list"
         placeholder="Cerca uno Stato…"
@@ -97,6 +110,55 @@ function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => v
         ))}
       </datalist>
     </form>
+  )
+}
+
+/** Shares the current address (the map state lives in its hash): the system sheet on phones, else the clipboard. */
+function ShareButton() {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const id = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(id)
+  }, [copied])
+  const share = async () => {
+    const url = window.location.href
+    if (navigator.share && window.matchMedia('(hover: none)').matches) {
+      await navigator.share({ title: document.title, url }).catch(() => undefined) // dismissed: nothing to do
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+    } catch {
+      window.prompt('Copia il link:', url) // clipboard blocked (insecure origin, permissions)
+    }
+  }
+  return (
+    <button
+      type="button"
+      className={`share-button${copied ? ' is-done' : ''}`}
+      onClick={share}
+      title="Condividi questa mappa (vista, indicatore, Stato, anno)"
+      aria-label={copied ? 'Link copiato' : 'Condividi questa mappa'}
+    >
+      {copied ? (
+        '✓'
+      ) : (
+        <svg viewBox="0 0 20 20" aria-hidden>
+          <path
+            d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-.9.9M11.5 8.5a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l.9-.9"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+      <span className="share-toast" aria-live="polite">
+        {copied ? 'Link copiato' : ''}
+      </span>
+    </button>
   )
 }
 
@@ -120,23 +182,28 @@ export function Controls(props: Props) {
           <h1>Atlante</h1>
           <p>Stati, capitali e città del mondo</p>
         </div>
-        <button
-          type="button"
-          className={`study-button${props.studying ? ' active' : ''}`}
-          onClick={props.onStudy}
-          aria-pressed={props.studying}
-        >
-          <svg viewBox="0 0 20 20" aria-hidden>
-            <path
-              d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Zm3 2v4c0 1.4 1.8 2.5 4 2.5s4-1.1 4-2.5v-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Studia
-        </button>
+        <span className="brand-actions">
+          <ShareButton />
+          <button
+            type="button"
+            className={`study-button${props.studying ? ' active' : ''}`}
+            onClick={props.onStudy}
+            aria-pressed={props.studying}
+            title={props.studying ? 'Esci dalla modalità studio (S)' : 'Modalità studio (S)'}
+            aria-keyshortcuts="S"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden>
+              <path
+                d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Zm3 2v4c0 1.4 1.8 2.5 4 2.5s4-1.1 4-2.5v-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Studia
+          </button>
+        </span>
       </header>
       <Search data={data} onSelect={props.onSelectCountry} />
       <details className="controls-body" open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)}>
@@ -165,22 +232,29 @@ export function Controls(props: Props) {
         <div className="field">
           <span className="field-label">Colora per</span>
           <div className="metric-grid" role="radiogroup" aria-label="Colora per">
-            {METRICS.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                role="radio"
-                aria-checked={metric === m.id}
-                className={`metric${metric === m.id ? ' active' : ''}`}
-                onClick={() => onMetric(m.id)}
-              >
-                <span
-                  className="metric-swatch"
-                  style={{ background: m.id === 'none' ? undefined : rampGradient(RAMPS[m.id]) }}
-                  aria-hidden
-                />
-                {m.label}
-              </button>
+            {METRICS.map((m, i) => (
+              <Fragment key={m.id}>
+                {m.group && m.group !== METRICS[i - 1]?.group && (
+                  <span className="metric-group" aria-hidden>
+                    {m.group}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={metric === m.id}
+                  title={METRIC_HINT[m.id]}
+                  className={`metric${metric === m.id ? ' active' : ''}`}
+                  onClick={() => onMetric(m.id)}
+                >
+                  <span
+                    className="metric-swatch"
+                    style={{ background: m.id === 'none' ? undefined : rampGradient(RAMPS[m.id]) }}
+                    aria-hidden
+                  />
+                  {m.label}
+                </button>
+              </Fragment>
             ))}
           </div>
         </div>
@@ -202,9 +276,31 @@ export function Controls(props: Props) {
             ))}
           </div>
         </div>
+        <div className="field">
+          <span className="field-label">Sfondo</span>
+          <div className="segmented" role="radiogroup" aria-label="Sfondo">
+            {BACKGROUNDS.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                role="radio"
+                title={b.hint}
+                aria-checked={props.background === b.id}
+                className={props.background === b.id ? 'active' : ''}
+                onClick={() => props.onBackground(b.id)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+          {props.background === 'relief' && projection === 'equal-earth' && (
+            <p className="field-note">Il rilievo non si può mostrare nella vista Piana: usa Globo o Mercatore.</p>
+          )}
+        </div>
         <div className="field toggles">
           <Switch checked={props.showCapitals} onChange={props.onShowCapitals} label="Capitali e capoluoghi" />
           <Switch checked={props.showCities} onChange={props.onShowCities} label="Città principali" />
+          <Switch checked={props.night} onChange={props.onNight} label="Giorno e notte (ora attuale)" />
         </div>
       </details>
       <Legend
@@ -214,6 +310,10 @@ export function Controls(props: Props) {
         hoverValue={props.hoverValue}
         note={props.legendNote}
       />
+      <Timeline {...props.timeline} />
+      <p className="shortcuts" aria-label="Scorciatoie da tastiera">
+        <kbd>R</kbd> ripristina la mappa · <kbd>S</kbd> studio · <kbd>/</kbd> cerca · <kbd>Esc</kbd> chiudi
+      </p>
       <footer className="sources">
         Dati al {new Date(data.meta.generatedAt).toLocaleDateString('it-IT')} ·{' '}
         {data.meta.sources.map((s, i) => (

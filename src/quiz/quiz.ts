@@ -1,18 +1,51 @@
 import { formatCompact } from '../scale'
-import type { Country } from '../types'
+import type { Country, Region } from '../types'
 
 export type Rng = () => number
 
-export type QuizMode = 'capital' | 'country' | 'population' | 'flashcard'
-export type ChoiceMode = Exclude<QuizMode, 'flashcard'>
+export type QuizMode =
+  | 'capital'
+  | 'country'
+  | 'locateCapital'
+  | 'shape'
+  | 'locate'
+  | 'flag'
+  | 'border'
+  | 'population'
+  | 'flashcard'
+  | 'regions'
+export type ChoiceMode = Exclude<QuizMode, 'flashcard' | 'regions'>
 
-/** `short` is used on phones, where the four modes share one row. */
-export const QUIZ_MODES: { id: QuizMode; label: string; short: string }[] = [
-  { id: 'capital', label: 'Stato → Capitale', short: 'Capitali' },
-  { id: 'country', label: 'Capitale → Stato', short: 'Stati' },
-  { id: 'population', label: 'Popolazione', short: 'Abitanti' },
-  { id: 'flashcard', label: 'Flashcard', short: 'Flashcard' },
+export type QuizModeGroup = 'Capitali' | 'Stati' | 'Numeri e ripasso' | 'Regioni'
+
+/** Grouped in the picker; `short` is used where space is tight. */
+export const QUIZ_MODES: { id: QuizMode; label: string; short: string; group: QuizModeGroup }[] = [
+  { id: 'capital', label: 'Stato → Capitale', short: 'Capitali', group: 'Capitali' },
+  { id: 'country', label: 'Capitale → Stato', short: 'Stati', group: 'Capitali' },
+  { id: 'locateCapital', label: 'Dov’è la capitale?', short: 'Dov’è', group: 'Capitali' },
+  { id: 'shape', label: 'Mappa → Stato', short: 'Mappa', group: 'Stati' },
+  { id: 'locate', label: 'Dov’è lo Stato?', short: 'Dov’è', group: 'Stati' },
+  { id: 'flag', label: 'Bandiera → Stato', short: 'Bandiere', group: 'Stati' },
+  { id: 'border', label: 'Confini', short: 'Confini', group: 'Stati' },
+  { id: 'population', label: 'Popolazione', short: 'Abitanti', group: 'Numeri e ripasso' },
+  { id: 'flashcard', label: 'Flashcard', short: 'Flashcard', group: 'Numeri e ripasso' },
+  { id: 'regions', label: 'Regioni e capoluoghi', short: 'Regioni', group: 'Regioni' },
 ]
+
+/** Modes whose question must not show the country (name, shape, flag or position would give the answer away). */
+export const HIDES_COUNTRY = new Set<QuizMode>(['country', 'flag', 'locate', 'locateCapital'])
+
+/** Modes answered by clicking the map instead of picking an option. */
+export const MAP_PICK_MODES = new Set<QuizMode>(['locate', 'locateCapital'])
+
+/** "Where is the capital?": a click within this distance counts as right (a few pixels at continent zoom). */
+export const LOCATE_CAPITAL_KM = 150
+
+/** Below this area a country framed at the camera's maximum zoom is a few pixels (Vatican, Monaco, Nauru). */
+export const SHAPE_MIN_AREA_KM2 = 100
+
+/** Land neighbours per country id. */
+export type Neighbors = Record<string, readonly string[]>
 
 /** Natural Earth types that are states (or are tagged as such for the mainland of a sovereign). */
 const STATE_TYPES = new Set(['Sovereign country', 'Sovereignty', 'Country'])
@@ -39,6 +72,19 @@ export function buildPool(countries: Record<string, Country>, scopeIds: Iterable
 
 export function capitalLabel(c: Country): string {
   return c.capitals.map((cap) => cap.name).join(' / ')
+}
+
+/**
+ * The cards a mode can ask: flags need an ISO code (flag file), shapes a country large enough to see, borders a
+ * quiz-eligible land neighbour
+ * anywhere in the world (Spain → Portugal even when the view is only part of Europe).
+ */
+export function modePool(mode: QuizMode, pool: readonly Country[], world: readonly Country[], neighbors: Neighbors): Country[] {
+  if (mode === 'flag') return pool.filter((c) => c.iso2)
+  if (mode === 'shape' || mode === 'locate') return pool.filter((c) => (c.area ?? 0) >= SHAPE_MIN_AREA_KM2)
+  if (mode !== 'border') return [...pool]
+  const eligible = new Set(world.map((c) => c.id))
+  return pool.filter((c) => (neighbors[c.id] ?? []).some((id) => eligible.has(id)))
 }
 
 /** Fisher–Yates on a copy. */
@@ -136,13 +182,43 @@ export type Choice = {
 
 export type Question = { mode: ChoiceMode; countryId: string; choices: Choice[] }
 
+/**
+ * "Which of these borders X?": one neighbour of X (same continent when possible, so France gets Spain rather
+ * than Brazil via French Guiana) and three countries that do not border it, nearest tiers first.
+ */
+export function borderQuestion(
+  target: Country,
+  pool: readonly Country[],
+  rng: Rng,
+  extra: readonly Country[],
+  neighbors: Neighbors,
+): Question {
+  const byId = new Map([...pool, ...extra].map((c) => [c.id, c]))
+  const near = new Set(neighbors[target.id] ?? [])
+  const candidates = [...near].flatMap((id) => byId.get(id) ?? [])
+  const sameContinent = candidates.filter((c) => c.continent === target.continent)
+  const answer = shuffle(sameContinent.length ? sameContinent : candidates, rng)[0]
+  const others = [...byId.values()].filter((c) => !near.has(c.id) && c.id !== target.id)
+  const options = shuffle([answer, ...pickDistractors(target, others, 3, rng, (c) => c.name)], rng)
+  const choices = options.map((c) => ({
+    key: c.id,
+    label: c.name,
+    correct: c.id === answer.id,
+    note: c.id === answer.id ? null : 'non confina',
+  }))
+  return { mode: 'border', countryId: target.id, choices }
+}
+
 export function makeQuestion(
   mode: ChoiceMode,
   target: Country,
   pool: readonly Country[],
   rng: Rng,
   extra: readonly Country[] = [],
+  neighbors: Neighbors = {},
 ): Question {
+  if (MAP_PICK_MODES.has(mode)) return { mode, countryId: target.id, choices: [] }
+  if (mode === 'border') return borderQuestion(target, pool, rng, extra, neighbors)
   if (mode === 'population') {
     const byId = new Map([...pool, ...extra].map((c) => [c.id, c]))
     const choices = populationOptions(target, pool, rng).map((o, i) => ({
@@ -154,7 +230,7 @@ export function makeQuestion(
     return { mode, countryId: target.id, choices }
   }
   const key = mode === 'capital' ? capitalLabel : (c: Country) => c.name
-  const note = mode === 'capital' ? (c: Country) => c.name : capitalLabel
+  const note = mode === 'capital' ? (c: Country) => c.name : mode === 'country' ? capitalLabel : () => null
   const options = shuffle([target, ...pickDistractors(target, pool, 3, rng, key, extra)], rng)
   const choices = options.map((c) => ({
     key: c.id,
@@ -167,7 +243,7 @@ export function makeQuestion(
 
 /* ---------------------------------------------------------------- session deck (Leitner-ish) */
 
-/** A missed card comes back after this many other cards. */
+/** A missed flashcard comes back after this many other cards. */
 export const REVIEW_SOON = 3
 /** A card recovered once (flashcards) comes back after this many cards for confirmation. */
 export const REVIEW_LATER = 8
@@ -196,29 +272,121 @@ function insertAt(queue: string[], id: string, offset: number): string[] {
   return out
 }
 
+export type DeckKind = 'flashcard' | 'choice'
+
 /**
  * Grade the current card.
- * - `retire` (flashcards): a card known at first sight is retired; a missed one must be known
- *   MASTERY_STREAK times in a row, coming back after REVIEW_LATER cards in between.
- * - otherwise (multiple choice, endless): known cards go to the back of the queue.
- * Missed cards always come back after REVIEW_SOON cards.
+ * - flashcards: a card known at first sight is retired; a missed one comes back after REVIEW_SOON
+ *   cards and must then be known MASTERY_STREAK times in a row, REVIEW_LATER cards apart.
+ * - multiple choice: every card is asked once per round. A right answer retires it; a wrong one
+ *   sends it to the back of the queue, so it is asked again only after all the others.
  */
-export function gradeCard(deck: Deck, known: boolean, retire: boolean): Deck {
+export function gradeCard(deck: Deck, known: boolean, kind: DeckKind): Deck {
   const [id, ...rest] = deck.queue
   if (id === undefined) return deck
   if (!known) {
     return {
       ...deck,
-      queue: insertAt(rest, id, REVIEW_SOON),
+      queue: kind === 'choice' ? [...rest, id] : insertAt(rest, id, REVIEW_SOON),
       misses: { ...deck.misses, [id]: (deck.misses[id] ?? 0) + 1 },
       streak: { ...deck.streak, [id]: 0 },
     }
   }
   const streak = (deck.streak[id] ?? 0) + 1
   const next = { ...deck, streak: { ...deck.streak, [id]: streak } }
-  if (!retire) return { ...next, queue: [...rest, id] }
-  if (!deck.misses[id] || streak >= MASTERY_STREAK) {
+  if (kind === 'choice' || !deck.misses[id] || streak >= MASTERY_STREAK) {
     return { ...next, queue: rest, mastered: [...deck.mastered, id] }
   }
   return { ...next, queue: insertAt(rest, id, REVIEW_LATER) }
+}
+
+/** A saved deck, if it still fits the pool: same cards, none lost or duplicated. */
+export function restoreDeck(saved: unknown, ids: readonly string[]): Deck | null {
+  if (!saved || typeof saved !== 'object') return null
+  const d = saved as Partial<Deck>
+  if (!Array.isArray(d.queue) || !Array.isArray(d.mastered) || !d.misses || !d.streak) return null
+  const cards = [...d.queue, ...d.mastered]
+  const pool = new Set(ids)
+  if (cards.length !== pool.size || new Set(cards).size !== cards.length || !cards.every((id) => pool.has(id))) return null
+  return { queue: d.queue, mastered: d.mastered, misses: d.misses, streak: d.streak, total: pool.size }
+}
+
+/* ---------------------------------------------------------------- map answers ("where is…?") */
+
+/** Great-circle distance in km. */
+export function distanceKm([lon1, lat1]: [number, number], [lon2, lat2]: [number, number]): number {
+  const r = Math.PI / 180
+  const a =
+    Math.sin(((lat2 - lat1) * r) / 2) ** 2 +
+    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a)))
+}
+
+/** The point an answer is measured to and drawn at: the capital, or the country's label point. */
+export function answerPoint(mode: QuizMode, target: Country): [number, number] {
+  const cap = target.capitals[0]
+  if (mode === 'locateCapital' && cap) return [cap.lon, cap.lat]
+  return target.label ?? (cap ? [cap.lon, cap.lat] : [0, 0])
+}
+
+export type MapAnswer = { correct: boolean; km: number; pickedCountryId: string | null; lngLat: [number, number] }
+
+/**
+ * Grade a click: "where is the state?" is right when the click lands on it; "where is the capital?" when it is
+ * within LOCATE_CAPITAL_KM of it. The distance is to the capital or, for states, the country's label point.
+ */
+export function gradeMapAnswer(
+  mode: QuizMode,
+  target: Country,
+  lngLat: [number, number],
+  pickedCountryId: string | null,
+): MapAnswer {
+  const km = distanceKm(lngLat, answerPoint(mode, target))
+  const correct = mode === 'locateCapital' ? km <= LOCATE_CAPITAL_KM : pickedCountryId === target.id
+  return { correct, km, pickedCountryId, lngLat }
+}
+
+/* ---------------------------------------------------------------- regions */
+
+export type RegionAsk = 'capital' | 'shape'
+
+export type RegionQuestion = { regionId: string; ask: RegionAsk; choices: Choice[] }
+
+/**
+ * A question on one region: its capital ("capoluogo") when it has one and the coin says so, otherwise which
+ * region is outlined on the map. Three distractors with distinct labels from the same country.
+ */
+export function regionQuestion(target: Region, regions: readonly Region[], rng: Rng): RegionQuestion {
+  const ask: RegionAsk = target.capName && rng() < 0.5 ? 'capital' : 'shape'
+  const key = ask === 'capital' ? (r: Region) => r.capName ?? '' : (r: Region) => r.name
+  const used = new Set([key(target)])
+  const distractors: Region[] = []
+  for (const r of shuffle(
+    regions.filter((r) => r.id !== target.id && key(r)),
+    rng,
+  )) {
+    if (distractors.length >= 3) break
+    if (used.has(key(r))) continue
+    used.add(key(r))
+    distractors.push(r)
+  }
+  const choices = shuffle([target, ...distractors], rng).map((r) => ({
+    key: r.id,
+    label: key(r),
+    correct: r.id === target.id,
+    note: r.id === target.id ? null : ask === 'capital' ? r.name : (r.capName ?? null),
+  }))
+  return { regionId: target.id, ask, choices }
+}
+
+/* ---------------------------------------------------------------- progress map */
+
+export type CardStatus = 'ok' | 'ko' | 'todo'
+
+/** Per card: learned (right, or recovered), missed and not yet recovered, or still to do. */
+export function deckStatus(deck: Deck): Record<string, CardStatus> {
+  const out: Record<string, CardStatus> = {}
+  for (const id of deck.queue) out[id] = deck.misses[id] ? 'ko' : 'todo'
+  for (const id of deck.mastered) out[id] = 'ok'
+  return out
 }

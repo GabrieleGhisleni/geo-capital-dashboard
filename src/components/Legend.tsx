@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatMetric, formatMetricCompact, rampGradient, scalePosition, type Scale } from '../scale'
+import { formatMetric, formatMetricCompact, positionOn, rampGradient, type Scale } from '../scale'
 import type { Metric } from '../types'
 import { METRIC_BY_ID } from '../views'
 
@@ -35,7 +35,7 @@ export function Legend({ scale, metric, scope, hoverValue, note }: Props) {
       // Private mode: the preference just isn't remembered.
     }
   }
-  const pct = (v: number) => `${(scalePosition(v, scale.domain) * 100).toFixed(2)}%`
+  const pct = (v: number) => `${(positionOn(v, scale) * 100).toFixed(2)}%`
 
   return (
     <section className={`legend${collapsed ? ' legend-collapsed' : ''}`} aria-label="Legenda">
@@ -66,7 +66,7 @@ export function Legend({ scale, metric, scope, hoverValue, note }: Props) {
         <p className="legend-foot">
           <span className="legend-nodata" /> n.d.
           <span className="legend-hint">
-            {hoverValue != null ? formatMetric(hoverValue, metric) : note ?? 'scala logaritmica'}
+            {hoverValue != null ? formatMetric(hoverValue, metric) : note ?? (scale.kind === 'log' ? 'scala logaritmica' : 'scala lineare')}
           </span>
         </p>
       )}

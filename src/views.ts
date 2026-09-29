@@ -45,14 +45,31 @@ export const CONTINENT_LABEL: Record<string, string> = {
   'Seven seas (open ocean)': 'Oceani',
 }
 
-export const METRICS: { id: Metric; label: string; unit: string; regional: boolean }[] = [
-  { id: 'population', label: 'Popolazione', unit: 'abitanti', regional: true },
-  { id: 'area', label: 'Superficie', unit: 'km²', regional: true },
-  { id: 'density', label: 'Densità', unit: 'ab./km²', regional: true },
-  { id: 'gdp', label: 'PIL', unit: 'US$', regional: false },
-  { id: 'gdpPerCapita', label: 'PIL pro capite', unit: 'US$', regional: false },
-  { id: 'none', label: 'Nessuno', unit: '', regional: false },
+export type MetricGroup = 'Popolazione e territorio' | 'Economia' | 'Salute e società' | 'Ambiente' | null
+
+/** `regional`: regions can carry it too. `group`: heading in the metric picker (null = no heading). */
+export const METRICS: { id: Metric; label: string; unit: string; regional: boolean; group: MetricGroup }[] = [
+  { id: 'population', label: 'Popolazione', unit: 'abitanti', regional: true, group: 'Popolazione e territorio' },
+  { id: 'area', label: 'Superficie', unit: 'km²', regional: true, group: 'Popolazione e territorio' },
+  { id: 'density', label: 'Densità', unit: 'ab./km²', regional: true, group: 'Popolazione e territorio' },
+  { id: 'urbanShare', label: 'Popolazione urbana', unit: '%', regional: false, group: 'Popolazione e territorio' },
+  { id: 'gdp', label: 'PIL', unit: 'US$', regional: true, group: 'Economia' },
+  { id: 'gdpPerCapita', label: 'PIL pro capite', unit: 'US$', regional: true, group: 'Economia' },
+  { id: 'gdpPerCapitaPpp', label: 'PIL p.c. (PPA)', unit: '$ internazionali', regional: false, group: 'Economia' },
+  { id: 'lifeExpectancy', label: 'Aspettativa di vita', unit: 'anni', regional: true, group: 'Salute e società' },
+  { id: 'elderlyShare', label: 'Over 65', unit: '%', regional: false, group: 'Salute e società' },
+  { id: 'fertility', label: 'Figli per donna', unit: 'figli', regional: false, group: 'Salute e società' },
+  { id: 'co2PerCapita', label: 'CO₂ pro capite', unit: 't/ab.', regional: false, group: 'Ambiente' },
+  { id: 'none', label: 'Nessuno', unit: '', regional: false, group: null },
 ]
+
+/** Longer explanations, shown as button titles. */
+export const METRIC_HINT: Partial<Record<Metric, string>> = {
+  gdpPerCapitaPpp: 'PIL pro capite a parità di potere d’acquisto: tiene conto dei prezzi locali',
+  elderlyShare: 'Quota della popolazione con 65 anni o più',
+  urbanShare: 'Quota della popolazione che vive in aree urbane',
+  co2PerCapita: 'Emissioni di CO₂ per abitante, esclusi i cambi d’uso del suolo',
+}
 
 export const METRIC_BY_ID = Object.fromEntries(METRICS.map((m) => [m.id, m])) as Record<Metric, (typeof METRICS)[number]>
 

@@ -179,6 +179,61 @@ h3 {
   color: var(--text-muted);
 }
 
+.brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.share-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.share-button:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.share-button.is-done {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.share-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.share-toast {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--text-primary);
+  color: var(--surface-solid);
+  font-size: 11.5px;
+  line-height: 22px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.share-toast:empty {
+  display: none;
+}
+
 .study-button {
   display: inline-flex;
   align-items: center;
@@ -321,11 +376,24 @@ h3 {
   gap: 6px;
 }
 
+.metric-group {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.metric-group:first-child {
+  margin-top: 0;
+}
+
 .metric {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 7px 9px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: transparent;
@@ -361,6 +429,12 @@ h3 {
 
 .metric-swatch[style*='gradient'] {
   border: 0;
+}
+
+.field-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 .segmented {
@@ -460,6 +534,78 @@ h3 {
 .legend {
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+
+/* ---------------------------------------------------------------- timeline */
+
+.timeline-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 11px 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.timeline-open:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.timeline-open svg {
+  width: 15px;
+  height: 15px;
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-play,
+.timeline-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--raised);
+  font-size: 11px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.timeline-close {
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  color: var(--text-muted);
+}
+
+.timeline-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.timeline-year {
+  flex: none;
+  min-width: 36px;
+  font-size: 15px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .legend-head {
@@ -584,6 +730,102 @@ h3 {
   letter-spacing: -0.02em;
 }
 
+.shortcuts {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.shortcuts kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* Touch devices have no keyboard shortcuts to show. */
+@media (hover: none) {
+  .shortcuts {
+    display: none;
+  }
+}
+
+/* Map cursor: plain arrow at rest (MapLibre's default is the open hand), closed hand while dragging. The
+   selection cursor over clickable features is set on the canvas by MapView. */
+.map .maplibregl-canvas-container.maplibregl-interactive {
+  cursor: default;
+}
+
+.map .maplibregl-canvas-container.maplibregl-interactive:active {
+  cursor: grabbing;
+}
+
+/* Flags (4:3 SVG): a hairline border keeps white fields visible on white cards. */
+.flag {
+  flex: none;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--border-strong);
+  vertical-align: middle;
+}
+
+.flag-sm {
+  width: 18px;
+  margin-right: 7px;
+  vertical-align: -2px;
+}
+
+.flag-lg {
+  width: 36px;
+  border-radius: 4px;
+}
+
+.country-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.neighbors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.neighbors button {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.neighbors button:hover {
+  border-color: var(--border-strong);
+  background: var(--raised);
+}
+
+.neighbors .flag-sm {
+  margin-right: 6px;
+  vertical-align: 0;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   font-size: 11px;
@@ -618,12 +860,57 @@ h3 {
   color: var(--text-secondary);
 }
 
+.capital-clock {
+  margin: 4px 0 0 20px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.capital-clock strong {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-chart {
+  display: block;
+  width: 100%;
+  height: 56px;
+  overflow: visible;
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-dot {
+  fill: var(--accent);
+  stroke: var(--surface-solid);
+  stroke-width: 2;
+}
+
+.trend-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.trend-foot strong {
+  color: var(--text-secondary);
+}
+
+/* Same bullseye as the capital marker on the map. */
 .capital-dot {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
-  border: 2.5px solid var(--text-primary);
-  background: var(--surface-solid);
+  border: 2.2px solid var(--text-primary);
+  background: radial-gradient(circle, var(--text-primary) 0 28%, var(--surface-solid) 30%);
 }
 
 .stats {
@@ -659,6 +946,37 @@ h3 {
 .stat-note {
   font-size: 10.5px;
   color: var(--text-muted);
+}
+
+/* A section whose h3 is the toggle (the cities list). */
+.section-toggle > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.section-toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-toggle > summary::after {
+  content: '▸';
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.section-toggle[open] > summary::after {
+  content: '▾';
+}
+
+.section-toggle > summary h3 {
+  margin: 0;
+}
+
+.section-toggle[open] > summary {
+  margin-bottom: 10px;
 }
 
 .panel h3 {
@@ -773,6 +1091,30 @@ th {
   color: var(--text-muted);
 }
 
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover,
+.th-sort[aria-pressed='true'] {
+  color: var(--text-primary);
+}
+
+.th-sort-mark {
+  display: inline-block;
+  width: 8px;
+}
+
 td:not(.num) {
   font-weight: 600;
   min-width: 90px;
@@ -823,6 +1165,15 @@ tbody tr:last-child td {
   color: var(--text-secondary);
 }
 
+.city-share {
+  display: inline-block;
+  min-width: 46px;
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .badge {
   margin-left: 7px;
   padding: 1px 7px;
@@ -861,11 +1212,39 @@ tbody tr:last-child td {
   font-size: 12.5px;
 }
 
+.tooltip-pinned {
+  left: 8px;
+  right: 8px;
+  max-width: none;
+  pointer-events: auto;
+}
+
+.tt-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
 .tt-title {
   font-family: var(--font-serif);
   font-weight: 600;
   font-size: 17px;
   letter-spacing: -0.01em;
+}
+
+.tt-flag {
+  width: 22px;
+  margin-right: 8px;
+  vertical-align: -1px;
 }
 
 .tt-sub {
@@ -1044,7 +1423,12 @@ tbody tr:last-child td {
     padding: 8px 10px 8px 34px;
   }
 
-  /* Legend first, then the collapsible options. */
+  /* Legend (and its timeline) first, then the collapsible options. */
+  .controls .timeline,
+  .controls .timeline-open {
+    order: 1;
+  }
+
   .controls .legend {
     order: 1;
     padding-top: 0;
@@ -1089,6 +1473,86 @@ tbody tr:last-child td {
 
   .panel-header h2 {
     font-size: 24px;
+  }
+
+  /* Country detail: a compact header and small tiles, four per row, so name, capital and the key figures fit the
+     short bottom sheet; regions and cities follow on scroll. */
+  .panel-header {
+    position: relative;
+  }
+
+  .panel-header .back {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    margin: 0;
+    padding: 3px 10px;
+  }
+
+  .back-label {
+    display: none;
+  }
+
+  .panel-header .eyebrow {
+    margin-bottom: 4px;
+    padding-right: 44px;
+    font-size: 10px;
+  }
+
+  .country-title {
+    gap: 9px;
+  }
+
+  .panel-header h2.country-title {
+    font-size: 21px;
+  }
+
+  .flag-lg {
+    width: 28px;
+  }
+
+  .capital-line {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+
+  .stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .stat {
+    padding: 5px 7px;
+    border-radius: 9px;
+    gap: 0;
+  }
+
+  .stat-label {
+    font-size: 9.5px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* One line: useFitText (SidePanel.tsx) lowers the size when a value does not fit. */
+  .stat-value {
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .stat-note {
+    display: none;
+  }
+
+  .neighbors {
+    gap: 4px;
+  }
+
+  .neighbors button {
+    padding: 3px 8px 3px 5px;
+    font-size: 11.5px;
   }
 
   .app .maplibregl-ctrl-bottom-right {

@@ -1,4 +1,4 @@
-// Copies the woff2 subsets used for map labels (Manrope for places, Fraunces for country names)
+// Copies the woff2 subsets used for map labels (Manrope)
 // into public/fonts/map and writes src/mapFonts.json: MapLibre `font-faces` entries per font stack.
 // Usage: node scripts/copy_map_fonts.mjs  (after npm install)
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -7,7 +7,6 @@ const out = 'public/fonts/map'
 const stacks = {
   'Manrope Medium': ['manrope', 500],
   'Manrope Bold': ['manrope', 700],
-  'Fraunces SemiBold': ['fraunces', 600],
 }
 
 mkdirSync(out, { recursive: true })

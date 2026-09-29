@@ -9,9 +9,11 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "data": "python3 scripts/build_data.py",
+    "validate": "python3 scripts/validate_data.py",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "fonts": "node scripts/copy_map_fonts.mjs"
+    "fonts": "node scripts/copy_map_fonts.mjs",
+    "flags": "node scripts/copy_flags.mjs"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.3.0",
@@ -24,7 +26,6 @@
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
-    "@fontsource/fraunces": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "@types/d3-scale": "^4.0.9",
     "@types/d3-scale-chromatic": "^3.1.0",
@@ -35,6 +36,7 @@
     "@types/topojson-client": "^3.1.5",
     "@types/topojson-specification": "^1.0.5",
     "@vitejs/plugin-react": "^6.1.1",
+    "flag-icons": "^7.5.0",
     "mapshaper": "^0.7.69",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
