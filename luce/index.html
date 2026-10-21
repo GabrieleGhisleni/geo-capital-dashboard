@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ore di luce, alba e tramonto durante l'anno: fino a tre città a confronto." />
+    <title>Ore di luce · Atlante</title>
+    <script>
+      // Apply the saved theme before the first paint (useTheme keeps it in sync afterwards).
+      try {
+        if (localStorage.getItem('theme') === 'dark') document.documentElement.dataset.theme = 'dark'
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/daylight/main.tsx"></script>
+  </body>
+</html>

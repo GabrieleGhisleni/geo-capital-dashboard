@@ -904,6 +904,26 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
+.capital-sun {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.capital-sun svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A link to the daylight page among the map toggles. */
+.field-link {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
 .trend-chart {
   display: block;
   width: 100%;

@@ -19,6 +19,7 @@ import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from zoneinfo import available_timezones
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_data import distance_to_polygon_km, geodesic_area_km2, topo_features  # noqa: E402
@@ -76,6 +77,7 @@ SEVERITY = {
     "city.gt_country": "error",
     "city.location": "warn",
     "city.duplicate": "warn",
+    "city.timezone": "error",
 }
 DESCRIPTION = {
     "country.population": f"population < 0, 0 with a capital, or >= {MAX_POPULATION:.1e}",
@@ -99,6 +101,7 @@ DESCRIPTION = {
     "city.gt_country": "city population > country population",
     "city.location": f"outside the country bbox + {CITY_BBOX_MARGIN_DEG:g}° and > {CITY_POLYGON_TOLERANCE_KM:g} km from its polygon",
     "city.duplicate": "same name twice in a country",
+    "city.timezone": "own time zone (5th field) unknown to the system tz database",
 }
 
 
@@ -362,6 +365,7 @@ def check_regions(rep: Report, countries: dict, admin1: dict[str, list]) -> None
 
 
 def check_cities(rep: Report, countries: dict, cities: dict, shapes: dict[str, list]) -> None:
+    zones = available_timezones()
     for cid, rows in cities.items():
         country = countries.get(cid, {})
         cpop, bbox = country.get("population"), country.get("bbox")
@@ -370,8 +374,12 @@ def check_cities(rep: Report, countries: dict, cities: dict, shapes: dict[str, l
             rep.count("city.duplicate")
             if n > 1:
                 rep.flag("city.duplicate", f"{cid}/{name}", f"{cid}: {name} ×{n}", n)
-        for name, lat, lon, pop in rows:
+        for name, lat, lon, pop, *own_zone in rows:
             key, tag = f"{cid}/{name}", f"{cid} {name}"
+            if own_zone:
+                rep.count("city.timezone")
+                if own_zone[0] not in zones:
+                    rep.flag("city.timezone", key, f"{tag}: unknown time zone {own_zone[0]}")
             rep.count("city.population")
             if not pop or pop <= 0:
                 rep.flag("city.population", key, f"{tag}: population {pop}", 0)

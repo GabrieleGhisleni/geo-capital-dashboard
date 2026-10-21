@@ -657,7 +657,14 @@ function hoverTarget(f: MapGeoJSONFeature): HoverTarget | null {
     case L.citiesAll:
       return {
         kind: 'city',
-        city: { name: props.name, lat: props.lat, lon: props.lon, population: props.population, countryId: props.countryId },
+        city: {
+          name: props.name,
+          lat: props.lat,
+          lon: props.lon,
+          population: props.population,
+          countryId: props.countryId,
+          timezone: props.timezone ?? null,
+        },
       }
     case L.regionFill:
       return { kind: 'region', region: props as Region }

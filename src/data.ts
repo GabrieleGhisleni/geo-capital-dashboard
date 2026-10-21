@@ -49,6 +49,28 @@ function countryNeighbors(topo: Topology, countries: Record<string, Country>): R
   return out
 }
 
+/** A country's main time zone: its capital's, else the first of its zones; null when unknown. */
+export function countryZone(country: Country): string | null {
+  return country.capitals.find((c) => c.timezone)?.timezone ?? country.timezones[0] ?? null
+}
+
+/** Cities from the compact tuples; those without their own zone share the country's. */
+function citiesFromTuples(raw: Record<string, CityTuple[]>, countries: Record<string, Country>): Record<string, City[]> {
+  const out: Record<string, City[]> = {}
+  for (const [countryId, list] of Object.entries(raw)) {
+    const zone = countries[countryId] ? countryZone(countries[countryId]) : null
+    out[countryId] = list.map(([name, lat, lon, population, timezone]) => ({
+      name,
+      lat,
+      lon,
+      population,
+      countryId,
+      timezone: timezone ?? zone,
+    }))
+  }
+  return out
+}
+
 export async function loadDataset(): Promise<Dataset> {
   const [countries, topo, rawCities, meta] = await Promise.all([
     getJson<Record<string, Country>>('countries.json'),
@@ -56,16 +78,7 @@ export async function loadDataset(): Promise<Dataset> {
     getJson<Record<string, CityTuple[]>>('cities.json'),
     getJson<Meta>('meta.json'),
   ])
-  const citiesByCountry: Record<string, City[]> = {}
-  for (const [countryId, list] of Object.entries(rawCities)) {
-    citiesByCountry[countryId] = list.map(([name, lat, lon, population]) => ({
-      name,
-      lat,
-      lon,
-      population,
-      countryId,
-    }))
-  }
+  const citiesByCountry = citiesFromTuples(rawCities, countries)
   return {
     countries,
     shapes: topoToGeo(topo),
@@ -74,6 +87,22 @@ export async function loadDataset(): Promise<Dataset> {
     neighbors: countryNeighbors(topo, countries),
     meta,
   }
+}
+
+export type Places = {
+  countries: Record<string, Country>
+  citiesByCountry: Record<string, City[]>
+  meta: Meta
+}
+
+/** Countries and cities without the shapes: what the daylight page needs. */
+export async function loadPlaces(): Promise<Places> {
+  const [countries, rawCities, meta] = await Promise.all([
+    getJson<Record<string, Country>>('countries.json'),
+    getJson<Record<string, CityTuple[]>>('cities.json'),
+    getJson<Meta>('meta.json'),
+  ])
+  return { countries, citiesByCountry: citiesFromTuples(rawCities, countries), meta }
 }
 
 /** Greedy coloring: every region gets the lowest index none of its neighbours has (busiest regions first). */

@@ -54,8 +54,11 @@ export type Country = {
   timezones: string[]
 }
 
-/** [name, lat, lon, population] — compact tuple to keep cities.json small. */
-export type CityTuple = [string, number, number, number]
+/**
+ * [name, lat, lon, population, timezone?] — compact tuple to keep cities.json small; the IANA zone is there only
+ * when it differs from the capital's.
+ */
+export type CityTuple = [name: string, lat: number, lon: number, population: number, timezone?: string]
 
 export type City = {
   name: string
@@ -63,6 +66,8 @@ export type City = {
   lon: number
   population: number
   countryId: string
+  /** IANA zone: the city's own, else the country's (countryZone); null when unknown. */
+  timezone: string | null
 }
 
 export type Region = {

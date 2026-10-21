@@ -6,6 +6,7 @@ import { METRIC_HINT, METRICS, VIEWS } from '../views'
 import { Legend } from './Legend'
 import { Timeline, type TimelineProps } from './Timeline'
 import type { Theme } from '../useTheme'
+import { ShareButton, ThemeButton } from './HeaderButtons'
 
 type Props = {
   data: Dataset
@@ -132,86 +133,6 @@ function Search({ data, onSelect }: { data: Dataset; onSelect: (id: string) => v
   )
 }
 
-/** Shares the current address (the map state lives in its hash): the system sheet on phones, else the clipboard. */
-function ShareButton() {
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!copied) return
-    const id = window.setTimeout(() => setCopied(false), 2000)
-    return () => window.clearTimeout(id)
-  }, [copied])
-  const share = async () => {
-    const url = window.location.href
-    if (navigator.share && window.matchMedia('(hover: none)').matches) {
-      await navigator.share({ title: document.title, url }).catch(() => undefined) // dismissed: nothing to do
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-    } catch {
-      window.prompt('Copia il link:', url) // clipboard blocked (insecure origin, permissions)
-    }
-  }
-  return (
-    <button
-      type="button"
-      className={`icon-button share-button${copied ? ' is-done' : ''}`}
-      onClick={share}
-      title="Condividi questa mappa (vista, indicatore, Stato, anno)"
-      aria-label={copied ? 'Link copiato' : 'Condividi questa mappa'}
-    >
-      {copied ? (
-        '✓'
-      ) : (
-        <svg viewBox="0 0 20 20" aria-hidden>
-          <path
-            d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-.9.9M11.5 8.5a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l.9-.9"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-          />
-        </svg>
-      )}
-      <span className="share-toast" aria-live="polite">
-        {copied ? 'Link copiato' : ''}
-      </span>
-    </button>
-  )
-}
-
-function ThemeButton({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme) => void }) {
-  const dark = theme === 'dark'
-  return (
-    <button
-      type="button"
-      className="icon-button"
-      onClick={() => onTheme(dark ? 'light' : 'dark')}
-      aria-pressed={dark}
-      title={dark ? 'Tema chiaro' : 'Tema scuro'}
-      aria-label="Tema scuro"
-    >
-      <svg viewBox="0 0 20 20" aria-hidden>
-        {dark ? (
-          <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-            <circle cx="10" cy="10" r="3.4" />
-            <path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M4.7 15.3 6 14M14 6l1.3-1.3" />
-          </g>
-        ) : (
-          <path
-            d="M16 12.2A6.5 6.5 0 0 1 7.8 4a6.5 6.5 0 1 0 8.2 8.2Z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinejoin="round"
-          />
-        )}
-      </svg>
-    </button>
-  )
-}
-
 /** Every metric as a button in a two-column grid, grouped by theme, each with its color ramp. */
 function MetricGrid({ metric, onMetric }: { metric: Metric; onMetric: (m: Metric) => void }) {
   return (
@@ -267,7 +188,7 @@ export function Controls(props: Props) {
         </div>
         <span className="brand-actions">
           <ThemeButton theme={props.theme} onTheme={props.onTheme} />
-          <ShareButton />
+          <ShareButton title="Condividi questa mappa (vista, indicatore, Stato, anno)" label="Condividi questa mappa" />
           <button
             type="button"
             className={`study-button${props.studying ? ' active' : ''}`}
@@ -379,6 +300,9 @@ export function Controls(props: Props) {
           <Switch checked={props.showCapitals} onChange={props.onShowCapitals} label="Capitali e capoluoghi" />
           <Switch checked={props.showCities} onChange={props.onShowCities} label="Città principali" />
           <Switch checked={props.night} onChange={props.onNight} label="Giorno e notte" />
+          <a className="field-link" href={`${import.meta.env.BASE_URL}luce/`}>
+            Ore di luce: alba e tramonto delle città a confronto →
+          </a>
         </div>
       </details>
       <Legend

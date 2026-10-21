@@ -7,13 +7,15 @@ README.md (Italian) covers data sources, licenses, the pipeline's choices and de
 
 A fully static React + MapLibre atlas (UI in Italian): globe / Equal Earth / Mercator map of states, capitals,
 admin-1 regions and major cities, colored by a metric; side panel with rankings and country detail; a study mode
-(quiz). No backend: `scripts/build_data.py` precompiles everything into `public/data`, GitHub Pages serves `dist/`.
+(quiz). A second page, `luce/` ("Ore di luce"), compares daylight, sunrise and sunset of up to 3 cities through the
+year or a month, without the map. No backend: `scripts/build_data.py` precompiles everything into `public/data`,
+GitHub Pages serves `dist/`.
 
 ## Commands
 
 | Command | What |
 | --- | --- |
-| `npm run dev` | Vite dev server. URL is `http://localhost:5173/geo-capital-dashboard/` (base path). Preview config: `.claude/launch.json` (`dev`). |
+| `npm run dev` | Vite dev server. URL is `http://localhost:5173/geo-capital-dashboard/` (base path), daylight page at `…/luce/`. Preview config: `.claude/launch.json` (`dev`). |
 | `npm test` | Vitest (`src/**/*.test.ts`) |
 | `npm run typecheck` / `npm run lint` | `tsc -b` / oxlint |
 | `npm run build` | typecheck + production build into `dist/` |
@@ -39,13 +41,18 @@ scripts/copy_flags.mjs    flags from node_modules/flag-icons (+ its LICENSE)
 public/data/              generated, committed (see "Data files")
 public/fonts/             Noto Sans glyph PBFs (generated) + Manrope woff2 (map/)
 public/flags/             <ISO2>.svg flags, committed; `flagUrl(country)` in data.ts, `<Flag>` in SidePanel.tsx
+luce/index.html           second Vite entry (build.rolldownOptions.input in vite.config.ts) → src/daylight/main.tsx
 src/App.tsx               state owner: view, metric, projection, background, selection, timeline year, night,
                           study mode, region store, color scales, URL hash sync, keyboard shortcuts
                           (R reset map, S study mode, / search, Esc close country)
 src/urlState.ts           shareable state in the hash (#v=asia&m=gdp&c=JPN&p=mercator&b=relief&y=1990&n=1)
 src/sun.ts                subsolar point and night polygon (terminator) for the day/night shade
+src/sunTimes.ts           sunrise/sunset/civil twilight per local day (NOAA equations, refined at the event time),
+                          zoneOffsets (Intl sampled daily, DST changes bisected to the minute), sunYear, sunToday,
+                          formatClock/formatDuration/formatChange
 src/time.ts               local time and UTC offsets of IANA zones via Intl
-src/data.ts               fetch + decode dataset (+ land `neighbors` from shared topology arcs); loadRegions()
+src/data.ts               fetch + decode dataset (+ land `neighbors` from shared topology arcs); loadPlaces()
+                          (countries + cities only, for the daylight page); countryZone(); loadRegions()
                           (cached, adds countryId + colorIndex); loadHistory()/historyValue()/HISTORY_METRICS;
                           flagUrl(); targetCountryId()
 src/types.ts              Country, Region, City, Metric, ViewId, Projection, HoverTarget
@@ -57,15 +64,17 @@ src/gestures.ts           trackpad pinch/pan vs mouse wheel classification
 src/labelPoint.ts         region name anchor: pole of inaccessibility of the largest part (polylabel algorithm)
 src/useTheme.ts           light (default) / dark toggle, saved in localStorage `theme`, set as <html data-theme>
 src/components/MapView.tsx    the map: style, sources, layers, feature-state sync, hover/click, camera
+src/components/HeaderButtons.tsx  ThemeButton and ShareButton, shared by both pages
 src/components/Controls.tsx   left card: theme, share + study buttons, search, view chips, MetricGrid (grouped buttons + ramp
-                              swatch), projection, background, toggles, Legend, Timeline, folded "Fonti e scorciatoie".
+                              swatch), projection, background, toggles (+ link to luce/), Legend, Timeline, folded "Fonti e scorciatoie".
                               The metric grid is kept expanded (user preference): the card scrolls on short screens;
                               a max-height ≤ 760px rule tightens spacing. Keep new controls compact or fold them.
                               Phones: a chevron folds the card to its header row (`.controls.collapsed`); it folds by
                               itself when a country is selected outside study mode (`focusCountryId`)
 src/components/Legend.tsx     color bar + ticks + hovered value marker
 src/components/Timeline.tsx   year slider + play under the legend (closed = latest data)
-src/components/SidePanel.tsx  right card: Ranking (overview, with flags) or CountryDetail (flag, stats incl.
+src/components/SidePanel.tsx  right card: Ranking (overview, with flags) or CountryDetail (flag, capital clock with
+                              today's sunrise–sunset linking to luce/#c=<capital>, stats incl.
                               EXTRA_STATS, "Confina con" chips, regions table sortable by name/population/3rd column
                               with population default, cities with share of the country)
 src/components/Tooltip.tsx    hover tooltip (desktop only) per HoverTarget kind
@@ -74,6 +83,10 @@ src/components/QuizPanel.tsx  study mode UI: ModePicker (grouped buttons / phone
 src/quiz/quiz.ts              pure quiz logic: eligible pool, modePool, distractors, population options,
                               borderQuestion, deck grading
 src/index.css                 design tokens (:root, dark overrides) and all layout; QuizPanel.css for the quiz
+src/daylight/                 the daylight page: DaylightApp.tsx (state, cards, table), charts.tsx (DayLengthChart,
+                              SunTimesChart small multiples, DayStrip), days.ts (month names, spans, wording),
+                              places.ts (Place index, search, PRESETS, hash state), CityPicker.tsx (combobox),
+                              daylight.css (series + sky tokens, layout; also imports index.css)
 ```
 
 ## Data files (public/data)
@@ -83,7 +96,8 @@ src/index.css                 design tokens (:root, dark overrides) and all layo
   urbanShare (%), co2PerCapita (t) — each with `<field>Year` —, area(+Source), capitals[{name, lat, lon,
   population}], label point + labelMinZoom (Natural Earth), bbox (framing, not full extent), admin1Count.
 - `countries.topo.json`: country polygons, feature id = ADM0_A3.
-- `cities.json`: `{ [ADM0_A3]: [name, lat, lon, population][] }` (tuples, ≤20 per country, capitals excluded).
+- `cities.json`: `{ [ADM0_A3]: [name, lat, lon, population, timezone?][] }` (tuples, ≤20 per country, capitals
+  excluded; the IANA zone only where it differs from the capital's, resolved to `City.timezone` on load).
 - `admin1/<ADM0_A3>.json`: TopoJSON of regions; properties = Region: id, name (it), type, iso, population(+Year),
   area(+Source), gdp, gdpPerCapita, gdpYear, lifeExpectancy(+Year), capName/capLat/capLon/capPop, timezone (IANA, nearest GeoNames place to
   the capital; the tooltip falls back to the country's zone when it has only one). Optional fields are
@@ -112,7 +126,8 @@ Keys: country ids are Natural Earth `ADM0_A3` (not always ISO3: KOS, SDS…). Re
 4. `build_cities`: GeoNames cities5000 + Wikidata population + Italian names, de-duplicated (`suppress_nearby`).
    Wikidata's population is ignored when it exceeds GeoNames' by `CITY_WIKIDATA_MAX_RATIO` (×10): the P1566 link
    then points at the district/province (Masvingo 1.6 M vs 90 k).
-   It also sets capital time zones and each country's `timezones` (ZONE_TAB filter).
+   It also sets capital time zones and each country's `timezones` (ZONE_TAB filter), and gives a city its own
+   GeoNames zone when it differs from the capital's (~190 cities; checked by `city.timezone` in validate_data.py).
 5. `write_history` (called from `build_countries`): `HISTORY_INDICATORS` series → `public/data/history/`.
 6. `download_fonts`, `write_meta`.
 
@@ -163,6 +178,18 @@ The OECD SDMX API is picky: only `/data/<flow>,/all?lastNObservations=1&format=c
   colored, the ranking and tooltips use the year's values.
 - URL: state is read once from the hash (`readUrlState`), written back with `replaceState` on every change and
   re-applied on `hashchange`. The share button (Controls) uses `navigator.share` on touch devices, else the clipboard.
+
+## Daylight page (src/daylight, luce/)
+
+- Places = capitals + cities.json, id `ADM0.Name` (e.g. `ITA.Roma`); state in the hash `#c=ITA.Roma,AUS.Sydney&m=6`
+  (ids encoded one by one, m = month 1–12, none = whole year), last cities also in localStorage `daylight:places`.
+  Unknown ids are dropped; with none left the first PRESET. A test checks every PRESET id against public/data.
+- Each choice keeps its color slot (`series-1..3`, the first three dataviz categorical slots, validated for CVD) when
+  others are removed; text never takes the series color, a line key next to it does.
+- `sunYear` per city for the current year; charts take day indices into it (`Range` = the year or a month). One
+  active day for cards, readouts and crosshairs: hover → pinned (click, touch, ←/→) → today or the 15th.
+- Sun panels draw bands in local clock hours, copied at ±24 h and clipped to 0–24 so sunsets past midnight and white
+  nights wrap; polar day/night come as 'up'/'down' (span = solar noon ± 12 h).
 
 ## Quiz (quiz.ts + QuizPanel.tsx)
 

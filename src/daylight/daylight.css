@@ -1,0 +1,887 @@
+/* Ore di luce (luce/index.html): builds on the tokens and controls of index.css. */
+
+:root {
+  /* City colors, in slot order: the first three categorical slots of the dataviz palette, validated together for
+     color-vision deficiencies on these surfaces (adjacent and all pairs). */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  /* Sky bands, light to dark: sun above the horizon, civil twilight, night. */
+  --sky-day: #fbe3a0;
+  --sky-twilight: #9aa6cc;
+  --sky-night: #3b4566;
+  --sky-grid: rgb(255 255 255 / 22%);
+  --grid: rgb(29 35 48 / 8%);
+  --axis-text: var(--text-muted);
+  --dl-max: 1180px;
+}
+
+:root[data-theme='dark'] {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --sky-day: #b7975a;
+  --sky-twilight: #424d78;
+  --sky-night: #141a28;
+  --sky-grid: rgb(255 255 255 / 10%);
+  --grid: rgb(255 255 255 / 8%);
+}
+
+.series-1 {
+  --series: var(--series-1);
+}
+
+.series-2 {
+  --series: var(--series-2);
+}
+
+.series-3 {
+  --series: var(--series-3);
+}
+
+.dl-page {
+  max-width: var(--dl-max);
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.dl-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 8px 24px rgb(16 24 40 / 6%);
+}
+
+:root[data-theme='dark'] .dl-card {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+}
+
+.dl-empty {
+  margin: 0;
+  padding: 28px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-family: var(--font-serif);
+  font-size: 17px;
+}
+
+/* ---------------------------------------------------------------- header */
+
+.dl-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dl-back {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 12px 4px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dl-back:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.dl-title h1 {
+  font-family: var(--font-serif);
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.dl-title p {
+  max-width: 62ch;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+}
+
+.dl-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.dl-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dl-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+}
+
+.dl-picker {
+  flex: 0 1 380px;
+  min-width: 260px;
+}
+
+.dl-picker input {
+  background: var(--surface-solid);
+  border-color: var(--border-strong);
+}
+
+.dl-picker input:disabled {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+.dl-options {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.dl-option,
+.dl-option-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 9px;
+}
+
+.dl-option {
+  cursor: pointer;
+}
+
+.dl-option.is-cursor {
+  background: var(--surface-2);
+}
+
+.dl-option[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.dl-option-empty {
+  color: var(--text-muted);
+}
+
+.dl-option .flag-sm {
+  flex: none;
+  width: 20px;
+}
+
+.dl-option-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 650;
+}
+
+.dl-option-meta {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.dl-option-pop {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dl-presets .field-label {
+  margin-right: 2px;
+}
+
+.dl-period {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dl-period button {
+  flex: none;
+  min-width: 46px;
+  padding: 6px 10px;
+}
+
+/* ---------------------------------------------------------------- city cards */
+
+.dl-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dl-cards-1 {
+  grid-template-columns: minmax(0, 420px);
+}
+
+.dl-cards-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dl-city {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  overflow: hidden;
+}
+
+/* The city's color as a thin top rule, matching its line in the charts. */
+.dl-city::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--series);
+}
+
+.dl-city-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.dl-city-head > .dl-key {
+  margin-top: 9px;
+}
+
+.dl-city-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-city-title h2 {
+  font-family: var(--font-serif);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.dl-city-country {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dl-remove {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.dl-remove:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.dl-city-meta {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Side by side, two lines for every card's place and zone keep the day boxes level. */
+@media (min-width: 900px) {
+  .dl-city-meta {
+    min-height: 2.9em;
+  }
+}
+
+.dl-city-day {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.dl-hero {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 26px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.dl-hero-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.dl-polar {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dl-times {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 18px;
+  margin: 0;
+}
+
+.dl-times dt {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.dl-times dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-times div:last-child dd {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.dl-shift {
+  margin-left: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.dl-city-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.dl-city-stats strong {
+  color: var(--text-primary);
+}
+
+/* 24-hour bar of the active day. */
+.dl-strip-bar {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.dl-strip-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.dl-strip-ticks {
+  position: relative;
+  height: 14px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-strip-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.dl-strip-ticks span:first-child {
+  transform: none;
+}
+
+.dl-strip-ticks span:last-child {
+  transform: translateX(-100%);
+}
+
+/* ---------------------------------------------------------------- sections and charts */
+
+.dl-section {
+  padding: 18px 20px 16px;
+}
+
+.dl-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 18px;
+  margin-bottom: 10px;
+}
+
+.dl-section-head h2 {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.dl-section-head p {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.dl-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  color: var(--text-secondary);
+}
+
+.dl-readout-date {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dl-readout-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dl-readout-item strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Line key: a short stroke of the city's color. */
+.dl-key {
+  flex: none;
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--series);
+  vertical-align: middle;
+}
+
+.dl-chart {
+  position: relative;
+  width: 100%;
+}
+
+.dl-chart svg {
+  display: block;
+  touch-action: pan-y;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dl-chart svg:focus-visible {
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.dl-chart text {
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.dl-axis text,
+.dl-axis-text {
+  fill: var(--axis-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.dl-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.dl-end-label {
+  fill: var(--text-secondary);
+  font-weight: 600;
+}
+
+.dl-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+  pointer-events: none;
+}
+
+.dl-crosshair-light {
+  stroke: rgb(255 255 255 / 70%);
+}
+
+:root[data-theme='dark'] .dl-crosshair-light {
+  stroke: rgb(255 255 255 / 55%);
+}
+
+.dl-dot {
+  fill: var(--series);
+  stroke: var(--surface-solid);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.dl-pill rect {
+  fill: var(--text-primary);
+}
+
+.dl-pill text {
+  fill: var(--surface-solid);
+  font-weight: 700;
+}
+
+.dl-today line,
+.dl-today-tick {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.dl-today text {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.dl-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+/* Sunrise / sunset panels: bands of the sky through the period, the city's color on their edges. */
+.dl-sun-panel {
+  margin: 0 0 6px;
+}
+
+.dl-sun-panel figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 8px 0 6px;
+  font-size: 13px;
+}
+
+.dl-sun-panel figcaption .muted {
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-sky-day {
+  fill: var(--sky-day);
+  background: var(--sky-day);
+}
+
+.dl-sky-twilight {
+  fill: var(--sky-twilight);
+  background: var(--sky-twilight);
+}
+
+.dl-sky-night {
+  fill: var(--sky-night);
+  background: var(--sky-night);
+}
+
+.dl-sky-grid {
+  stroke: var(--sky-grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.dl-edge {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+}
+
+.dl-mark-label {
+  fill: #ffffff;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--sky-night);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.dl-sky-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dl-sky-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dl-swatch {
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* ---------------------------------------------------------------- table */
+
+.dl-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.dl-table th[scope='col'] {
+  white-space: nowrap;
+}
+
+.dl-table th[scope='col'] .dl-key {
+  margin-right: 4px;
+}
+
+.dl-table th[scope='row'] {
+  position: static;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.dl-table tbody tr {
+  cursor: pointer;
+}
+
+.dl-table tbody tr.is-active {
+  background: var(--accent-soft);
+}
+
+.dl-table .num {
+  text-align: left;
+}
+
+.dl-weekday {
+  display: inline-block;
+  width: 2.4em;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.dl-row-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.dl-footer {
+  font-size: 12px;
+}
+
+.dl-footer p {
+  max-width: 90ch;
+  margin: 0 0 6px;
+}
+
+/* ---------------------------------------------------------------- narrower screens */
+
+@media (min-width: 900px) and (max-width: 1279px) {
+  .dl-cards {
+    gap: 10px;
+  }
+
+  .dl-city {
+    padding: 14px 14px 12px;
+  }
+
+  .dl-city-day {
+    padding: 10px 11px;
+  }
+
+  .dl-hero {
+    font-size: 22px;
+  }
+
+  .dl-times {
+    gap: 4px 12px;
+  }
+}
+
+@media (max-width: 899px) {
+  .dl-page {
+    padding: 16px 16px 32px;
+    gap: 14px;
+  }
+
+  .dl-title h1 {
+    font-size: 29px;
+  }
+
+  .dl-title p {
+    font-size: 13px;
+  }
+
+  .dl-picker {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* Examples and months scroll sideways instead of wrapping over several lines. */
+  .dl-presets {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .dl-presets .chip {
+    flex: none;
+  }
+
+  .dl-period {
+    align-self: stretch;
+  }
+
+  .dl-cards,
+  .dl-cards-1,
+  .dl-cards-2 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  /* Compact cards, so the charts are not three screens down. */
+  .dl-city {
+    gap: 8px;
+    padding: 12px 12px 10px;
+  }
+
+  .dl-city-head > .dl-key {
+    margin-top: 8px;
+  }
+
+  .dl-city-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 10px;
+  }
+
+  .dl-city-title h2 {
+    font-size: 19px;
+  }
+
+  .dl-city-meta {
+    margin: -6px 0 0;
+    font-size: 11.5px;
+  }
+
+  .dl-city-day {
+    gap: 7px;
+    padding: 9px 11px 6px;
+    border-radius: 12px;
+  }
+
+  .dl-hero {
+    font-size: 20px;
+  }
+
+  .dl-times {
+    gap: 2px 14px;
+  }
+
+  .dl-times dd {
+    font-size: 14.5px;
+  }
+
+  .dl-city-stats {
+    font-size: 12px;
+  }
+
+  .dl-table th,
+  .dl-table td {
+    padding: 6px 7px;
+    font-size: 12px;
+  }
+
+  .dl-section {
+    padding: 14px 12px 12px;
+  }
+
+  .dl-section-head h2 {
+    font-size: 19px;
+  }
+
+  .dl-hint {
+    display: none;
+  }
+}

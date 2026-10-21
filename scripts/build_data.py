@@ -1461,6 +1461,9 @@ def build_cities(
     enriched = 0
     cities_out: dict[str, list] = {}
     for cid, major in selected.items():
+        # A city's own time zone is written only where it differs from the capital's (multi-zone countries), so
+        # the file stays small; the client falls back to the capital's zone (countryZone in data.ts).
+        capital_zone = next((c["timezone"] for c in countries[cid]["capitals"] if c.get("timezone")), None)
         rows = []
         for c in major:
             w = wd.get(gn_to_qid.get(c["geonameid"], ""), {})
@@ -1475,7 +1478,10 @@ def build_cities(
             ):
                 population = w["population"]
                 enriched += 1
-            rows.append([name, c["lat"], c["lon"], population])
+            row = [name, c["lat"], c["lon"], population]
+            if c["timezone"] and c["timezone"] != capital_zone:
+                row.append(c["timezone"])
+            rows.append(row)
         cities_out[cid] = sorted(rows, key=lambda r: -r[3])
     log(f"cities: {sum(len(v) for v in cities_out.values())} ({enriched} with Wikidata population)")
 

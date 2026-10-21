@@ -2,8 +2,10 @@ import type { FeatureCollection, Geometry } from 'geojson'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flagUrl, HISTORY_METRICS, historyValue, type Dataset } from '../data'
 import { distinctOffsets, formatOffset, localTime, offsetMinutes } from '../time'
+import { formatClock, sunToday } from '../sunTimes'
+import { capitalZone, placeId, writeHash } from '../daylight/places'
 import { formatCompact, formatMetric, formatMetricCompact, formatNumber, formatShare, metricValue } from '../scale'
-import type { Country, History, Metric, Region } from '../types'
+import type { Capital, City, Country, History, Metric, Region } from '../types'
 import { CONTINENT_LABEL, METRICS, SUBREGION_LABEL, type ViewDef } from '../views'
 
 type Props = {
@@ -168,12 +170,35 @@ function nearKm(a: CityRow, b: CityRow): number {
   return Math.hypot(dx, a.lat - b.lat) * 111
 }
 
-/** Local time of the capital and the country's UTC offsets now ("3 fusi orari, UTC−5 … UTC−3"). */
-function CapitalClock({ country, now }: { country: Country; now: Date }) {
-  const zone = country.capitals[0]?.timezone
+/** Today's sunrise and sunset at the capital, linking to the daylight page with the capital chosen. */
+function CapitalSun({ capital, country, cities, now }: { capital: Capital; country: Country; cities?: City[]; now: Date }) {
+  const day = sunToday(capital.lat, capital.lon, capitalZone(capital, country, cities), now)
+  const text =
+    day.sun === 'up'
+      ? 'sole di mezzanotte'
+      : day.sun === 'down'
+        ? 'notte polare'
+        : `${formatClock(day.sun.rise)}–${formatClock(day.sun.set)}`
+  const href = `${import.meta.env.BASE_URL}luce/#${writeHash({ ids: [placeId(country.id, capital.name)], month: null })}`
+  return (
+    <a className="capital-sun" href={href} title={`Alba e tramonto oggi a ${capital.name}: confronta le ore di luce durante l’anno`}>
+      <svg viewBox="0 0 20 20" aria-hidden>
+        <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+          <circle cx="10" cy="10" r="3.2" />
+          <path d="M10 2.8v1.6M10 15.6v1.6M2.8 10h1.6M15.6 10h1.6M4.9 4.9 6 6M14 14l1.1 1.1M4.9 15.1 6 14M14 6l1.1-1.1" />
+        </g>
+      </svg>
+      {text}
+    </a>
+  )
+}
+
+/** Local time of the capital and the country's UTC offsets now ("3 fusi orari, UTC−5 … UTC−3"), then its sun. */
+function CapitalClock({ country, cities, now }: { country: Country; cities?: City[]; now: Date }) {
+  const capital = country.capitals[0]
+  const zone = capital?.timezone
   const time = zone ? localTime(zone, now) : null
   const offsets = distinctOffsets(country.timezones.length ? country.timezones : zone ? [zone] : [], now)
-  if (!time && !offsets.length) return null
   const own = zone ? offsetMinutes(zone, now) : null
   const zones =
     offsets.length > 1
@@ -181,6 +206,7 @@ function CapitalClock({ country, now }: { country: Country; now: Date }) {
       : own != null
         ? formatOffset(own)
         : null
+  if (!time && !zones && !capital) return null
   return (
     <p className="capital-clock">
       {time && (
@@ -190,6 +216,8 @@ function CapitalClock({ country, now }: { country: Country; now: Date }) {
       )}
       {time && zones && ' · '}
       {zones}
+      {(time || zones) && capital && ' · '}
+      {capital && <CapitalSun capital={capital} country={country} cities={cities} now={now} />}
     </p>
   )
 }
@@ -296,7 +324,7 @@ function CountryDetail(props: Props & { country: Country }) {
             <span className="capital-dot" aria-hidden /> Capitale: <strong>{country.capitals.map((c) => c.name).join(' / ')}</strong>
           </p>
         )}
-        <CapitalClock country={country} now={now} />
+        <CapitalClock country={country} cities={data.citiesByCountry[country.id]} now={now} />
       </header>
       {props.regionNote && (
         <p className="map-note">
