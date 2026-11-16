@@ -1,5 +1,6 @@
 import type { Feature, FeatureCollection, Geometry, Point } from 'geojson'
 import {
+  GPUInitializationError,
   Map as MapLibre,
   NavigationControl,
   setWorkerUrl,
@@ -12,7 +13,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { glyphsUrl, targetCountryId, type Dataset } from '../data'
 import { installWheelGestures } from '../gestures'
 import mapFonts from '../mapFonts.json'
@@ -676,6 +677,7 @@ function hoverTarget(f: MapGeoJSONFeature): HoverTarget | null {
 
 export function MapView(props: Props) {
   const container = useRef<HTMLDivElement>(null)
+  const [webglUnavailable, setWebglUnavailable] = useState(false)
   const mapRef = useRef<MapLibre | null>(null)
   const readyRef = useRef(false)
   const latest = useRef(props)
@@ -688,7 +690,9 @@ export function MapView(props: Props) {
   // Create the map once.
   useEffect(() => {
     const { data, projection, theme } = latest.current
-    const map = new MapLibre({
+    let map: MapLibre
+    try {
+      map = new MapLibre({
       container: container.current!,
       style: buildStyle(data, projection, theme),
       center: [12, 48],
@@ -704,7 +708,13 @@ export function MapView(props: Props) {
         if (type !== 'Glyphs') return { url }
         return { url: url.replace(/Manrope%20\w+/, (m) => encodeURIComponent(GLYPH_FALLBACK[decodeURIComponent(m)] ?? m)) }
       },
-    })
+      })
+    } catch (error) {
+      if (!(error instanceof GPUInitializationError)) throw error
+      container.current?.replaceChildren()
+      setWebglUnavailable(true)
+      return
+    }
     map.addControl(new NavigationControl({ visualizePitch: false, showCompass: false }), 'bottom-right')
     map.dragRotate.disable()
     map.touchZoomRotate.disableRotation()
@@ -850,7 +860,16 @@ export function MapView(props: Props) {
     if (map && readyRef.current) moveCamera(map, latest.current, true)
   }, [view, selectedId, padding, props.resetToken])
 
-  return <div ref={container} className="map" aria-label="Mappa interattiva" role="application" />
+  return (
+    <div ref={container} className="map" aria-label="Mappa interattiva" role="application">
+      {webglUnavailable && (
+        <div className="map-unavailable" role="alert">
+          <strong>La mappa non è disponibile</strong>
+          <p>Il browser non riesce ad avviare WebGL2. Attiva l’accelerazione grafica nelle impostazioni e riavvia il browser, oppure prova un altro browser aggiornato.</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function syncNight(map: MapLibre, props: Props) {

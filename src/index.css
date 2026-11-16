@@ -113,6 +113,23 @@ h3 {
   background: radial-gradient(ellipse at 50% 45%, #f6f9fb 0%, var(--bg) 70%);
 }
 
+.map-unavailable {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.map-unavailable p {
+  max-width: 32rem;
+}
+
 :root[data-theme='dark'] .app > .map {
   background: radial-gradient(ellipse at 50% 45%, #141c26 0%, var(--bg) 70%);
 }
