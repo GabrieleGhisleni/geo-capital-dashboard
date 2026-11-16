@@ -4,9 +4,9 @@ import { defineConfig } from 'vite'
 
 const page = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
-// GitHub Pages serves the site under /<repo>/; override with BASE_PATH if needed.
+// The production site is served from the root of its custom domain.
 export default defineConfig({
-  base: process.env.BASE_PATH ?? '/geo-capital-dashboard/',
+  base: process.env.BASE_PATH ?? '/',
   plugins: [react()],
   // Two pages: the atlas (index.html) and the daylight comparison (luce/), which loads no map.
   build: { rolldownOptions: { input: { main: page('index.html'), luce: page('luce/index.html') } } },
